@@ -1,0 +1,9 @@
+2026-07-16 19:15:47 | INFO | loader.py | Line:18 | Reading train_FD004.txt
+2026-07-16 19:15:48 | INFO | loader.py | Line:21 | train_FD004.txt Loaded Successfully
+2026-07-16 19:15:48 | INFO | loader.py | Line:18 | Reading test_FD004.txt
+2026-07-16 19:15:49 | INFO | loader.py | Line:21 | test_FD004.txt Loaded Successfully
+2026-07-16 19:15:49 | INFO | loader.py | Line:18 | Reading RUL_FD004.txt
+2026-07-16 19:15:49 | INFO | loader.py | Line:21 | RUL_FD004.txt Loaded Successfully
+2026-07-16 19:15:49 | INFO | validator.py | Line:40 | Validating training dataset...
+2026-07-16 19:15:49 | INFO | validator.py | Line:50 | Validating testing dataset...
+2026-07-16 19:15:49 | INFO | validator.py | Line:60 | Validating RUL dataset...
