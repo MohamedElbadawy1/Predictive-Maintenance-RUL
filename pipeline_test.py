@@ -1,6 +1,9 @@
 from src.data.loader import DataLoader
 from src.data.validator import DataValidator
 from src.config.config import TRAIN_DATA_PATH, TEST_DATA_PATH, RUL_DATA_PATH
+from src.preprocessing.rul_generator import RULGenerator
+
+
 loader = DataLoader(
     train_path=TRAIN_DATA_PATH,
     test_path=TEST_DATA_PATH,
@@ -20,3 +23,10 @@ validator = DataValidator(
 report = validator.validate_all()
 
 print(report)
+
+
+generator = RULGenerator(train_df)
+
+raw_df = generator.generate()
+
+print(raw_df.head())
