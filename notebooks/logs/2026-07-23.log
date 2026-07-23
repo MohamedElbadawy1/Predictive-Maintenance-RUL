@@ -1,0 +1,6 @@
+2026-07-23 19:17:18 | INFO | loader.py | Line:18 | Reading train_FD004.txt
+2026-07-23 19:17:20 | INFO | loader.py | Line:21 | train_FD004.txt Loaded Successfully
+2026-07-23 19:17:20 | INFO | loader.py | Line:18 | Reading test_FD004.txt
+2026-07-23 19:17:22 | INFO | loader.py | Line:21 | test_FD004.txt Loaded Successfully
+2026-07-23 19:17:22 | INFO | loader.py | Line:18 | Reading RUL_FD004.txt
+2026-07-23 19:17:22 | INFO | loader.py | Line:21 | RUL_FD004.txt Loaded Successfully

@@ -7,3 +7,7 @@ EXPECTED_COLUMNS = [
     "operational_setting_3",
     *[f"sensor_{i}" for i in range(1, 22)],
 ]
+
+SENSOR_COLUMNS=[
+    *[f"sensor_{i}" for i in range(1, 22)],
+]

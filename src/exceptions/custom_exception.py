@@ -15,8 +15,12 @@ class CustomException(Exception):
 
         _, _, exc_tb = error_detail.exc_info()
 
-        self.file_name = exc_tb.tb_frame.f_code.co_filename
-        self.line_number = exc_tb.tb_lineno
+        if exc_tb is not None:
+            self.file_name = exc_tb.tb_frame.f_code.co_filename
+            self.line_number = exc_tb.tb_lineno
+        else:
+            self.file_name = "N/A"
+            self.line_number = "N/A"
 
         self.error_message = (
             f"Error occurred in script: [{self.file_name}] "
