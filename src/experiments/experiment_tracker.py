@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.logger.logger import logger
-from src.config.config import ARTIFACTS_DIR
+from src.config.config import EXPERIMENTS_DIR, MODELS_DIR
 
 
 class ExperimentTracker:
@@ -14,17 +14,23 @@ class ExperimentTracker:
     Save experiment artifacts including metrics, model,
     feature importance, and experiment summary.
 
-    Every experiment is stored in its own timestamped directory,
-    while the latest best model is also copied to the root
-    artifacts directory for easy loading.
+    Every experiment is stored in its own timestamped directory
+    under EXPERIMENTS_DIR, while the latest best model is also
+    copied to MODELS_DIR for easy loading.
     """
 
     def __init__(
         self,
-        root_dir: Path = ARTIFACTS_DIR,
+        root_dir: Path = EXPERIMENTS_DIR,
+        models_dir: Path = MODELS_DIR,
     ):
 
         self.root_dir = Path(root_dir)
+        self.models_dir = Path(models_dir)
+        self.models_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         timestamp = datetime.now().strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -86,9 +92,9 @@ class ExperimentTracker:
 
             f.write(model_name)
 
-        # Copy the latest model to the root artifacts directory
+        # Copy the latest model to the models directory
         latest_model_path = (
-            self.root_dir /
+            self.models_dir /
             "best_model.pkl"
         )
 
@@ -98,7 +104,7 @@ class ExperimentTracker:
         )
 
         with open(
-            self.root_dir /
+            self.models_dir /
             "best_model_name.txt",
             "w",
         ) as f:
@@ -106,7 +112,7 @@ class ExperimentTracker:
             f.write(model_name)
 
         with open(
-            self.root_dir /
+            self.models_dir /
             "latest_experiment.txt",
             "w",
         ) as f:

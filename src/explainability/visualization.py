@@ -1,8 +1,10 @@
 from pathlib import Path
+from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from src.config.config import PLOTS_DIR
 from src.logger.logger import logger
 
 
@@ -13,10 +15,10 @@ class ExplainabilityVisualizer:
 
     def __init__(
         self,
-        save_dir: str = "artifacts/plots",
+        save_dir: Optional[Union[str, Path]] = None,
     ):
 
-        self.save_dir = Path(save_dir)
+        self.save_dir = Path(save_dir) if save_dir is not None else PLOTS_DIR
         self.save_dir.mkdir(
             parents=True,
             exist_ok=True,
