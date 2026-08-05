@@ -1,27 +1,37 @@
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
 from src.logger.logger import logger
+from src.config.config import ARTIFACTS_DIR
 
 
 class ExperimentTracker:
     """
     Save experiment artifacts including metrics, model,
     feature importance, and experiment summary.
+
+    Every experiment is stored in its own timestamped directory,
+    while the latest best model is also copied to the root
+    artifacts directory for easy loading.
     """
 
     def __init__(
         self,
-        root_dir: str = "artifacts/experiments",
+        root_dir: Path = ARTIFACTS_DIR,
     ):
 
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.root_dir = Path(root_dir)
+
+        timestamp = datetime.now().strftime(
+            "%Y-%m-%d_%H-%M-%S"
+        )
 
         self.experiment_dir = (
-            Path(root_dir) / timestamp
+            self.root_dir / timestamp
         )
 
         self.experiment_dir.mkdir(
@@ -38,7 +48,10 @@ class ExperimentTracker:
         results: pd.DataFrame,
     ):
 
-        path = self.experiment_dir / "benchmark_results.csv"
+        path = (
+            self.experiment_dir /
+            "benchmark_results.csv"
+        )
 
         results.to_csv(
             path,
@@ -55,16 +68,52 @@ class ExperimentTracker:
         model_name: str,
     ):
 
-        model_path = self.experiment_dir / "best_model.pkl"
+        # Save inside the experiment directory
+        experiment_model_path = (
+            self.experiment_dir /
+            "best_model.pkl"
+        )
 
-        trainer.save(model_path)
+        trainer.save(
+            experiment_model_path
+        )
 
         with open(
-            self.experiment_dir / "best_model_name.txt",
+            self.experiment_dir /
+            "best_model_name.txt",
             "w",
         ) as f:
 
             f.write(model_name)
+
+        # Copy the latest model to the root artifacts directory
+        latest_model_path = (
+            self.root_dir /
+            "best_model.pkl"
+        )
+
+        shutil.copy2(
+            experiment_model_path,
+            latest_model_path,
+        )
+
+        with open(
+            self.root_dir /
+            "best_model_name.txt",
+            "w",
+        ) as f:
+
+            f.write(model_name)
+
+        with open(
+            self.root_dir /
+            "latest_experiment.txt",
+            "w",
+        ) as f:
+
+            f.write(
+                self.experiment_dir.name
+            )
 
         logger.info(
             "Best model saved."
@@ -105,7 +154,8 @@ class ExperimentTracker:
         )
 
         importance.to_csv(
-            self.experiment_dir / "feature_importance.csv",
+            self.experiment_dir /
+            "feature_importance.csv",
             index=False,
         )
 
@@ -119,7 +169,8 @@ class ExperimentTracker:
     ):
 
         with open(
-            self.experiment_dir / "summary.json",
+            self.experiment_dir /
+            "summary.json",
             "w",
         ) as f:
 

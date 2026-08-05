@@ -5,7 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ## Data Directories
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
+PROCESSED_DATA_DIR = DATA_DIR / "raw"
 
 
 
@@ -13,3 +13,32 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 TRAIN_DATA_PATH = RAW_DATA_DIR / "train_FD004.txt"
 TEST_DATA_PATH = RAW_DATA_DIR / "test_FD004.txt"
 RUL_DATA_PATH = RAW_DATA_DIR / "RUL_FD004.txt"
+
+
+## Artifacts
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+MODELS_DIR = ARTIFACTS_DIR / "models"
+REPORTS_DIR = PROJECT_ROOT / "reports"
+DATA_DIR = PROJECT_ROOT / "data"
+
+
+
+# Randomness
+RANDOM_STATE = 42
+
+# Data
+ENGINE_COLUMN = "unit_number"
+TARGET_COLUMN = "RUL"
+
+# Feature Engineering
+ROLLING_WINDOW = 5
+LAGS = [1, 2, 3]
+
+# Splitting
+VALIDATION_SIZE = 0.2
+
+# Scaling
+SCALER = "standard"
+
+# Target Engineering
+DEFAULT_RUL_CAP = 125
