@@ -1,1 +1,6 @@
-"artifacts/data/" 
+artifacts/
+logs/
+__pycache__/
+.venv/
+.env
+*.pkl
