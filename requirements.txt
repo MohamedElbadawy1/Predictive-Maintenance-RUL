@@ -1,3 +1,8 @@
 pandas
 numpy
 scikit-learn
+xgboost
+lightgbm
+catboost
+optuna
+tensorflow-cpu

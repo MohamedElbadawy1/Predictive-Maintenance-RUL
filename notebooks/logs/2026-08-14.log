@@ -1,0 +1,6 @@
+2026-08-14 23:00:23 | INFO | base_trainer.py | Line:24 | Training CatBoostRegressor...
+2026-08-14 23:01:51 | INFO | base_trainer.py | Line:30 | Training completed successfully.
+2026-08-14 23:01:51 | INFO | experiment_tracker.py | Line:48 | Experiment directory created at A:\AI_Engineer\ML Projects\Predictive-Maintenance-RUL\artifacts\experiments\2026-08-14_23-01-51
+2026-08-14 23:01:51 | INFO | experiment_tracker.py | Line:67 | Benchmark results saved.
+2026-08-14 23:01:51 | INFO | base_trainer.py | Line:59 | Model saved to A:\AI_Engineer\ML Projects\Predictive-Maintenance-RUL\artifacts\experiments\2026-08-14_23-01-51\best_model.pkl
+2026-08-14 23:01:51 | INFO | experiment_tracker.py | Line:124 | Best model saved.

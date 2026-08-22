@@ -16,10 +16,18 @@ RUL_DATA_PATH = RAW_DATA_DIR / "RUL_FD004.txt"
 ## organized by kind, so nothing writes back into data/ or the repo root)
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 
+INTERIM_DATA_DIR = ARTIFACTS_DIR / "data" / "interim"
+FEATURES_DATA_DIR = ARTIFACTS_DIR / "data" / "features"
 PROCESSED_DATA_DIR = ARTIFACTS_DIR / "data" / "processed"
+
 MODELS_DIR = ARTIFACTS_DIR / "models"
+SCALERS_DIR = MODELS_DIR / "scalers"
+SELECTED_FEATURES_PATH = MODELS_DIR / "selected_features.json"
+BEST_PARAMS_PATH = MODELS_DIR / "best_params.json"
+
 EXPERIMENTS_DIR = ARTIFACTS_DIR / "experiments"
 PLOTS_DIR = ARTIFACTS_DIR / "plots"
+SEQUENCES_DIR = ARTIFACTS_DIR / "data" / "sequences"
 
 REPORTS_DIR = PROJECT_ROOT / "reports"
 

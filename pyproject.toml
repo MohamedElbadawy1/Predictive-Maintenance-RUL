@@ -1,0 +1,15 @@
+[project]
+name = "predictive-maintenance-rul"
+version = "0.1.0"
+description = "Predictive Maintenance and RUL Estimation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "catboost>=1.2.10",
+    "lightgbm>=4.7.0",
+    "numpy>=2.2.6",
+    "optuna>=4.9.0",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.7.2",
+    "xgboost>=3.2.0",
+]
