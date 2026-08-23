@@ -126,6 +126,71 @@ class SequenceGenerator:
 
         return X, y, groups
 
+    def get_last_window(
+        self,
+        df: pd.DataFrame,
+        feature_columns: List[str],
+    ) -> Tuple[np.ndarray, np.ndarray, List]:
+
+        """
+        Extract only the single most recent window per engine — for
+        test-time inference on truncated trajectories, where there is
+        no future RUL label and only one prediction (from the latest
+        available cycles) is wanted per engine.
+
+        Same "skip, never pad" rule as transform(): an engine with fewer
+        than window_size cycles contributes nothing and is reported as
+        skipped, rather than padded with invented values the model
+        never trained on.
+
+        Returns (X, engine_ids, skipped_engine_ids) — no y, since test
+        engines have no per-row RUL to return here (compare X's
+        predictions against the official RUL file separately, one
+        value per engine).
+        """
+
+        # No target_column check here — unlike transform(), this is
+        # meant for test-time data, which has no RUL column at all.
+        required = [self.group_column, self.time_column] + list(feature_columns)
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise CustomException(f"Missing required columns: {missing}", sys)
+
+        sequences = []
+        engine_ids = []
+        skipped_engine_ids = []
+
+        for engine_id, engine_df in df.groupby(self.group_column):
+
+            engine_df = engine_df.sort_values(self.time_column)
+            n_cycles = len(engine_df)
+
+            if n_cycles < self.window_size:
+                skipped_engine_ids.append(engine_id)
+                continue
+
+            feature_matrix = engine_df[feature_columns].to_numpy()
+            sequences.append(feature_matrix[-self.window_size:])
+            engine_ids.append(engine_id)
+
+        if not sequences:
+            raise CustomException(
+                "No last-windows could be extracted — every engine had "
+                f"fewer cycles than window_size={self.window_size}.",
+                sys,
+            )
+
+        X = np.array(sequences, dtype=np.float32)
+
+        if skipped_engine_ids:
+            logger.info(
+                f"get_last_window: skipped {len(skipped_engine_ids)} "
+                f"engine(s) with fewer than {self.window_size} cycles: "
+                f"{skipped_engine_ids}"
+            )
+
+        return X, engine_ids, skipped_engine_ids
+
     def _validate_input(
         self,
         df: pd.DataFrame,

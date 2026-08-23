@@ -24,9 +24,19 @@ different question for a sequence model than it was for CatBoost:
                         same values (which duplicates information already
                         present across the window's time axis).
 
-Pipeline: engineered features checkpoint -> same engine split as every
-prior sprint -> reduce to the chosen feature set -> scale (fit on train
-only) -> SequenceGenerator -> cache to .npz for fast, resumable reuse.
+Pipeline: raw train_FD004 -> RUL (chosen cap) -> feature engineering ->
+same engine split as every prior sprint -> reduce to the chosen feature
+set -> scale (fit on train only) -> SequenceGenerator -> cache to .npz
+for fast, resumable reuse.
+
+--cap : which RUL cap to label training targets with. Defaults to the
+        project's current default (150 as of Sprint 14 — cap=150 beat
+        the original 125 on the official test set). The cached
+        engineered-features checkpoint has cap=125 baked into its RUL
+        column from Sprint 8, so the RUL is recomputed fresh from raw
+        data here rather than trusted from that checkpoint whenever a
+        non-default cap is requested — same reasoning as
+        rul_cap_experiment.py.
 """
 import argparse
 import sys
@@ -36,6 +46,7 @@ import numpy as np
 import pandas as pd
 
 from src.config.config import (
+    TRAIN_DATA_PATH, TEST_DATA_PATH, RUL_DATA_PATH,
     FEATURES_DATA_DIR,
     SELECTED_FEATURES_PATH,
     SCALERS_DIR,
@@ -43,7 +54,14 @@ from src.config.config import (
     RANDOM_STATE,
     TARGET_COLUMN,
     ENGINE_COLUMN,
+    ROLLING_WINDOW,
+    LAGS,
+    DEFAULT_RUL_CAP,
 )
+from src.utils.constant import SENSOR_COLUMNS
+from src.data.loader import DataLoader
+from src.preprocessing.rul_generator import RULGenerator
+from src.preprocessing.feature_engineer import FeatureEngineer
 from src.explainability.feature_reducer import FeatureReducer
 from src.explainability.feature_selector import FeatureCategorySelector
 from src.preprocessing.data_splitter import DataSplitter
@@ -53,7 +71,10 @@ from src.preprocessing.sequence_generator import SequenceGenerator
 parser = argparse.ArgumentParser()
 parser.add_argument("--feature-set", choices=["full", "raw"], default="full")
 parser.add_argument("--window-size", type=int, default=30)
+parser.add_argument("--cap", type=str, default=str(DEFAULT_RUL_CAP), help="RUL cap, or 'none' for uncapped")
 args = parser.parse_args()
+cap = None if args.cap.lower() == "none" else int(args.cap)
+cap_label = "no_cap" if cap is None else f"cap{cap}"
 
 WINDOW_SIZE = args.window_size
 SEQUENCE_DIR = FEATURES_DATA_DIR.parent / "sequences"
@@ -61,10 +82,13 @@ SEQUENCE_DIR.mkdir(parents=True, exist_ok=True)
 
 TIME_COLUMN = "time_in_cycles"
 
-print(f"Feature set: {args.feature_set}")
-print("Loading engineered feature checkpoint...")
-feature_df = pd.read_csv(FEATURES_DATA_DIR / "train_features.csv")
-print(f"  {feature_df.shape}")
+print(f"Feature set: {args.feature_set}  |  RUL cap: {cap}")
+print("Building training features fresh from raw data (RUL cap is not cached)...")
+train_raw = DataLoader(TRAIN_DATA_PATH, TEST_DATA_PATH, RUL_DATA_PATH).load_train()
+train_with_rul = RULGenerator(train_raw).generate(cap=cap)
+engineer = FeatureEngineer(sensor_columns=SENSOR_COLUMNS, rolling_window=ROLLING_WINDOW, lags=LAGS)
+feature_df = engineer.transform(train_with_rul)
+print(f"  {feature_df.shape}  RUL range: [{feature_df[TARGET_COLUMN].min()}, {feature_df[TARGET_COLUMN].max()}]")
 
 if args.feature_set == "full":
     final_features = FeatureReducer.load_selected_features(SELECTED_FEATURES_PATH)
@@ -114,7 +138,7 @@ train_df[final_features] = scaler.fit_transform(train_df[final_features])
 val_df[final_features] = scaler.transform(val_df[final_features])
 
 SCALERS_DIR.mkdir(parents=True, exist_ok=True)
-scaler_path = SCALERS_DIR / f"lstm_feature_scaler_{args.feature_set}.pkl"
+scaler_path = SCALERS_DIR / f"lstm_feature_scaler_{args.feature_set}_{cap_label}.pkl"
 scaler.save(scaler_path)
 print(f"Saved LSTM feature scaler -> {scaler_path}")
 
@@ -133,7 +157,7 @@ print("Generating validation sequences...")
 X_val_seq, y_val_seq, val_groups = generator.transform(val_df, final_features)
 print(f"  X_val_seq: {X_val_seq.shape}  y_val_seq: {y_val_seq.shape}")
 
-out_path = SEQUENCE_DIR / f"lstm_sequences_{args.feature_set}_w{WINDOW_SIZE}.npz"
+out_path = SEQUENCE_DIR / f"lstm_sequences_{args.feature_set}_{cap_label}_w{WINDOW_SIZE}.npz"
 np.savez_compressed(
     out_path,
     X_train=X_train_seq, y_train=y_train_seq, train_groups=train_groups,

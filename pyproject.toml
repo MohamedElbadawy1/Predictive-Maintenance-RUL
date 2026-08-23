@@ -11,5 +11,6 @@ dependencies = [
     "optuna>=4.9.0",
     "pandas>=2.3.3",
     "scikit-learn>=1.7.2",
+    "tensorflow>=2.21.0",
     "xgboost>=3.2.0",
 ]

@@ -28,7 +28,7 @@ from tensorflow import keras
 
 from src.config.config import ARTIFACTS_DIR, MODELS_DIR
 from src.deep_learning.lstm_model import build_lstm_baseline
-from src.deep_learning.dl_trainer import DLTrainer
+from src.deep_learning.lstm_model import DLTrainer
 
 MAX_EPOCHS = 40
 PATIENCE = 8
@@ -39,15 +39,17 @@ DROPOUT_RATE = 0.2
 parser = argparse.ArgumentParser()
 parser.add_argument("--feature-set", choices=["full", "raw"], default="full")
 parser.add_argument("--window-size", type=int, default=30)
+parser.add_argument("--cap", type=str, default="150", help="RUL cap label matching the prepared sequence file, or 'none'")
 parser.add_argument("--n-epochs", type=int, default=5)
 args = parser.parse_args()
+cap_label = "no_cap" if args.cap.lower() == "none" else f"cap{args.cap}"
 
 SEQUENCE_PATH = (
     ARTIFACTS_DIR / "data" / "sequences"
-    / f"lstm_sequences_{args.feature_set}_w{args.window_size}.npz"
+    / f"lstm_sequences_{args.feature_set}_{cap_label}_w{args.window_size}.npz"
 )
-CHECKPOINT_PATH = MODELS_DIR / f"lstm_checkpoint_{args.feature_set}.keras"
-STATE_PATH = MODELS_DIR / f"lstm_training_state_{args.feature_set}.json"
+CHECKPOINT_PATH = MODELS_DIR / f"lstm_checkpoint_{args.feature_set}_{cap_label}.keras"
+STATE_PATH = MODELS_DIR / f"lstm_training_state_{args.feature_set}_{cap_label}.json"
 
 data = np.load(SEQUENCE_PATH)
 X_train, y_train = data["X_train"], data["y_train"]
