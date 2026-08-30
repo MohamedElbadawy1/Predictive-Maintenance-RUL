@@ -15,11 +15,7 @@ class BaseTrainer:
 
         self.model = model
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-    ) -> None:
+    def train(self,X_train: pd.DataFrame,y_train: pd.Series,) -> None:
 
         logger.info(
             f"Training {self.model.__class__.__name__}..."
@@ -40,10 +36,7 @@ class BaseTrainer:
 
         return self.model.predict(X)
 
-    def save(
-        self,
-        path: str,
-    ) -> None:
+    def save(self,path: str,) -> None:
 
         path = Path(path)
         path.parent.mkdir(

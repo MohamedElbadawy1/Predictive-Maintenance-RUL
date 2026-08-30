@@ -22,6 +22,7 @@ PROCESSED_DATA_DIR = ARTIFACTS_DIR / "data" / "processed"
 
 MODELS_DIR = ARTIFACTS_DIR / "models"
 SCALERS_DIR = MODELS_DIR / "scalers"
+MODEL_FILE_PATH = MODELS_DIR / "model.pkl"
 SELECTED_FEATURES_PATH = MODELS_DIR / "selected_features.json"
 BEST_PARAMS_PATH = MODELS_DIR / "best_params.json"
 
