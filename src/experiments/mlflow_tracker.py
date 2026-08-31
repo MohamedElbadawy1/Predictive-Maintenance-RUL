@@ -53,8 +53,15 @@ class MLflowTracker:
 
             if model is not None:
                 log_fn = getattr(mlflow, model_flavor, None)
-                if log_fn is not None:
+                if log_fn is not None and hasattr(log_fn, "log_model"):
                     log_fn.log_model(model, "model")
+                else:
+                    # Unknown flavor — sklearn's logger works for any
+                    # scikit-learn-compatible model (fit/predict interface),
+                    # which covers RandomForest and anything else not
+                    # explicitly handled above. Better than silently
+                    # skipping the model artifact.
+                    mlflow.sklearn.log_model(model, "model")
 
             if artifact_paths:
                 for path in artifact_paths:

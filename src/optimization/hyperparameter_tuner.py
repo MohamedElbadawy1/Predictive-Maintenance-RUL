@@ -1,5 +1,5 @@
 import time
-from typing import Callable, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import optuna
 import pandas as pd
@@ -14,7 +14,8 @@ from src.logger.logger import logger
 #   "int"       -> trial.suggest_int(low, high)
 #   "float"     -> trial.suggest_float(low, high)
 #   "float_log" -> trial.suggest_float(low, high, log=True)
-DEFAULT_SEARCH_SPACE: Dict[str, Tuple[str, float, float]] = {
+
+CATBOOST_SEARCH_SPACE: Dict[str, Tuple[str, float, float]] = {
     "depth": ("int", 4, 10),
     "learning_rate": ("float_log", 0.01, 0.3),
     "iterations": ("int", 200, 1500),
@@ -23,27 +24,69 @@ DEFAULT_SEARCH_SPACE: Dict[str, Tuple[str, float, float]] = {
     "random_strength": ("float", 0.0, 10.0),
 }
 
+XGBOOST_SEARCH_SPACE: Dict[str, Tuple[str, float, float]] = {
+    "max_depth": ("int", 3, 10),
+    "learning_rate": ("float_log", 0.01, 0.3),
+    "n_estimators": ("int", 200, 1500),
+    "reg_lambda": ("float", 1.0, 10.0),
+    "subsample": ("float", 0.5, 1.0),
+    "colsample_bytree": ("float", 0.5, 1.0),
+}
 
-class CatBoostTuner:
+LIGHTGBM_SEARCH_SPACE: Dict[str, Tuple[str, float, float]] = {
+    "max_depth": ("int", 3, 10),
+    "num_leaves": ("int", 15, 255),
+    "learning_rate": ("float_log", 0.01, 0.3),
+    "n_estimators": ("int", 200, 1500),
+    "reg_lambda": ("float", 1.0, 10.0),
+    "subsample": ("float", 0.5, 1.0),
+    "colsample_bytree": ("float", 0.5, 1.0),
+}
+
+# Backward-compat alias — existing code imports this exact name.
+DEFAULT_SEARCH_SPACE = CATBOOST_SEARCH_SPACE
+
+_MODEL_DEFAULTS = {
+    "catboost": {
+        "search_space": CATBOOST_SEARCH_SPACE,
+        "fixed_params": {"verbose": False},
+    },
+    "xgboost": {
+        "search_space": XGBOOST_SEARCH_SPACE,
+        "fixed_params": {"objective": "reg:squarederror"},
+    },
+    "lightgbm": {
+        "search_space": LIGHTGBM_SEARCH_SPACE,
+        "fixed_params": {"verbose": -1},
+    },
+}
+
+
+class ModelTuner:
     """
-    Hyperparameter optimization for CatBoost using Optuna.
+    Hyperparameter optimization for any model in ModelFactory, using
+    Optuna. Same mechanism for every model family — only the search
+    space and a couple of fixed params (e.g. CatBoost's `verbose=False`
+    vs. LightGBM's `verbose=-1`) differ, defined once in
+    `_MODEL_DEFAULTS` rather than duplicated per model.
 
-    Every trial trains CatBoost on the same train/validation split with a
-    different hyperparameter combination, minimizing validation MAE.
-    RMSE, R2, and training time are recorded per trial as secondary metrics.
+    Every trial trains the chosen model on the same train/validation
+    split with a different hyperparameter combination, minimizing
+    validation MAE. RMSE, R2, and training time are recorded per trial
+    as secondary metrics. Every trial also gets automatically logged to
+    MLflow (one run per trial) via BaseTrainer's built-in tracking.
 
     Example
     -------
-    tuner = CatBoostTuner(X_train, y_train, X_val, y_val)
-
-    study = tuner.run(n_trials=40)
-
+    tuner = ModelTuner("xgboost", X_train, y_train, X_val, y_val)
+    study = tuner.run(n_trials=30)
     best_params = tuner.best_params()
     trials_df = tuner.get_trials_dataframe()
     """
 
     def __init__(
         self,
+        model_name: str,
         X_train: pd.DataFrame,
         y_train: pd.Series,
         X_val: pd.DataFrame,
@@ -51,19 +94,31 @@ class CatBoostTuner:
         search_space: Optional[Dict[str, Tuple[str, float, float]]] = None,
         fixed_params: Optional[Dict] = None,
         random_state: int = 42,
+        track_mlflow: bool = True,
     ):
 
+        model_name = model_name.lower()
+        if model_name not in _MODEL_DEFAULTS:
+            raise ValueError(
+                f"No tuner defaults for '{model_name}'. "
+                f"Supported: {list(_MODEL_DEFAULTS.keys())}"
+            )
+
+        self.model_name = model_name
         self.X_train = X_train
         self.y_train = y_train
         self.X_val = X_val
         self.y_val = y_val
 
-        self.search_space = search_space or DEFAULT_SEARCH_SPACE
-        self.fixed_params = fixed_params or {
+        defaults = _MODEL_DEFAULTS[model_name]
+        self.search_space = search_space or defaults["search_space"]
+        self.fixed_params = {
             "random_state": random_state,
-            "verbose": False,
+            **defaults["fixed_params"],
+            **(fixed_params or {}),
         }
         self.random_state = random_state
+        self.track_mlflow = track_mlflow
 
         self.evaluator = RegressionEvaluator()
         self.study: Optional[optuna.Study] = None
@@ -81,11 +136,11 @@ class CatBoostTuner:
         self.study = optuna.create_study(
             direction="minimize",
             sampler=sampler,
-            study_name="catboost_rul_optimization",
+            study_name=f"{self.model_name}_rul_optimization",
         )
 
         logger.info(
-            f"Starting Optuna search: {n_trials} trials, "
+            f"Starting Optuna search for {self.model_name}: {n_trials} trials, "
             f"search space = {list(self.search_space.keys())}"
         )
 
@@ -97,8 +152,8 @@ class CatBoostTuner:
         )
 
         logger.info(
-            f"Optimization finished. Best MAE = {self.study.best_value:.4f} "
-            f"at trial {self.study.best_trial.number}."
+            f"[{self.model_name}] Optimization finished. "
+            f"Best MAE = {self.study.best_value:.4f} at trial {self.study.best_trial.number}."
         )
 
         return self.study
@@ -131,15 +186,20 @@ class CatBoostTuner:
         params = self._suggest_params(trial)
         model_params = {**self.fixed_params, **params}
 
-        model = ModelFactory.create("catboost", **model_params)
-        trainer = BaseTrainer(model)
+        model = ModelFactory.create(self.model_name, **model_params)
+        trainer = BaseTrainer(
+            model,
+            track_mlflow=self.track_mlflow,
+            run_name=f"{self.model_name}_optuna_trial_{trial.number}",
+            tags={"model_family": self.model_name, "stage": "hyperparameter_search"},
+        )
 
         start = time.time()
-        trainer.train(self.X_train, self.y_train)
+        # BaseTrainer.train() only auto-logs metrics when val data is
+        # passed — using that here means every trial is fully logged
+        # (params + metrics + model) with no separate logging call.
+        metrics = trainer.train(self.X_train, self.y_train, self.X_val, self.y_val)
         training_time = time.time() - start
-
-        predictions = trainer.predict(self.X_val)
-        metrics = self.evaluator.evaluate(self.y_val, predictions)
 
         trial.set_user_attr("RMSE", metrics["RMSE"])
         trial.set_user_attr("R2", metrics["R2"])
@@ -157,7 +217,7 @@ class CatBoostTuner:
         )
 
         logger.info(
-            f"Trial {trial.number} | MAE={metrics['MAE']:.4f} | "
+            f"[{self.model_name}] Trial {trial.number} | MAE={metrics['MAE']:.4f} | "
             f"RMSE={metrics['RMSE']:.4f} | R2={metrics['R2']:.4f} | "
             f"Time={training_time:.2f}s | params={params}"
         )
@@ -187,3 +247,67 @@ class CatBoostTuner:
             raise RuntimeError(
                 "No study found. Call run() before requesting results."
             )
+
+
+class CatBoostTuner(ModelTuner):
+    """Thin convenience wrapper — identical to ModelTuner("catboost", ...).
+    Kept for backward compatibility with existing scripts."""
+
+    def __init__(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame,
+        y_val: pd.Series,
+        search_space: Optional[Dict[str, Tuple[str, float, float]]] = None,
+        fixed_params: Optional[Dict] = None,
+        random_state: int = 42,
+        track_mlflow: bool = True,
+    ):
+        super().__init__(
+            "catboost", X_train, y_train, X_val, y_val,
+            search_space=search_space, fixed_params=fixed_params,
+            random_state=random_state, track_mlflow=track_mlflow,
+        )
+
+
+class XGBoostTuner(ModelTuner):
+    """Convenience wrapper — identical to ModelTuner("xgboost", ...)."""
+
+    def __init__(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame,
+        y_val: pd.Series,
+        search_space: Optional[Dict[str, Tuple[str, float, float]]] = None,
+        fixed_params: Optional[Dict] = None,
+        random_state: int = 42,
+        track_mlflow: bool = True,
+    ):
+        super().__init__(
+            "xgboost", X_train, y_train, X_val, y_val,
+            search_space=search_space, fixed_params=fixed_params,
+            random_state=random_state, track_mlflow=track_mlflow,
+        )
+
+
+class LightGBMTuner(ModelTuner):
+    """Convenience wrapper — identical to ModelTuner("lightgbm", ...)."""
+
+    def __init__(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame,
+        y_val: pd.Series,
+        search_space: Optional[Dict[str, Tuple[str, float, float]]] = None,
+        fixed_params: Optional[Dict] = None,
+        random_state: int = 42,
+        track_mlflow: bool = True,
+    ):
+        super().__init__(
+            "lightgbm", X_train, y_train, X_val, y_val,
+            search_space=search_space, fixed_params=fixed_params,
+            random_state=random_state, track_mlflow=track_mlflow,
+        )

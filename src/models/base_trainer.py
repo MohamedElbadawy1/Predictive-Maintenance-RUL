@@ -93,6 +93,7 @@ class BaseTrainer:
                     params=params,
                     metrics=metrics,
                     model=self.model,
+                    model_flavor=self._detect_mlflow_flavor(),
                     tags=self.tags,
                 )
                 logger.info(f"Logged to MLflow: run_id={self.last_run_id}")
@@ -100,6 +101,25 @@ class BaseTrainer:
                 logger.warning(f"MLflow logging failed ({exc}) — model was still trained.")
 
         return metrics
+
+    def _detect_mlflow_flavor(self) -> str:
+        """
+        MLflow logs models differently per library (mlflow.catboost vs
+        mlflow.xgboost vs mlflow.lightgbm vs generic mlflow.sklearn) —
+        detect the right one from the model's module rather than assume
+        every trained model is CatBoost.
+        """
+
+        module_name = type(self.model).__module__.lower()
+
+        if "catboost" in module_name:
+            return "catboost"
+        if "xgboost" in module_name:
+            return "xgboost"
+        if "lightgbm" in module_name:
+            return "lightgbm"
+
+        return "sklearn"
 
     def predict(
         self,
