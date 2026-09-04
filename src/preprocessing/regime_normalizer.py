@@ -14,7 +14,7 @@ from src.logger.logger import logger
 class RegimeNormalizer:
     """
     Regime-aware sensor normalization for multi-operating-condition
-    C-MAPSS subsets (FD002, FD004). The same sensor produces different
+    C-MAPSS subsets (FD004). The same sensor produces different
     "normal" values under different operating conditions (altitude,
     speed, throttle — the 3 operational settings) — a single global
     StandardScaler conflates that condition-driven variation with actual
