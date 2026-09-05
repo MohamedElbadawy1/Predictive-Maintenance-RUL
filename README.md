@@ -82,6 +82,7 @@ Root-level pipeline scripts (each also has a matching notebook where noted):
 | `rul_cap_experiment.py` | Compares RUL cap strategies (no cap, 125, 150, 175, 195) |
 | `train_lstm.py` / `train_gru.py` | Resumable sequence-model training with checkpointing |
 | `promote_regime_aware_model.py` | Promotes a tuning result to canonical `best_model.pkl` |
+| `bucket_error_analysis.py` | Breaks the canonical model's test error down by true RUL range |
 
 ---
 
@@ -164,7 +165,8 @@ filename style.
 | [14](docs/Sprint_14_RUL_Cap_Investigation.md) | RUL cap investigation — 125 → 150 |
 | [15](docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md) | Fair CatBoost vs. LSTM comparison |
 | [16](docs/Sprint_16_GRU_Baseline_MLflow.md) | GRU baseline + MLflow adoption |
-| [17](docs/Sprint_17_Regime_Aware_Normalization.md) | Regime-aware normalization (current) |
+| [17](docs/Sprint_17_Regime_Aware_Normalization.md) | Regime-aware normalization (current model) |
+| [18](docs/Sprint_18_Bucket_Error_Analysis.md) | Bucket-level error analysis of the canonical model |
 
 For a runnable, narrated tour of the whole project, see
 `notebooks/00_project_walkthrough.ipynb`.
