@@ -64,6 +64,7 @@ src/
 │                               LightGBM)
 ├── evaluation/                 Regression metrics (MAE, RMSE, R², MAPE)
 ├── experiments/                MLflow tracking setup
+├── inference/                   Consolidated production inference pipeline
 └── config/config.py            Single source of truth for every path and constant
 
 notebooks/                     One notebook per pipeline stage, real outputs saved
@@ -147,6 +148,30 @@ Then open `http://localhost:5000`.
 
 ---
 
+## Production Inference
+
+`InferencePipeline` is the single place raw-sensor-data-to-prediction logic lives —
+every analysis script's ad-hoc version of this chain has been consolidated into one
+class:
+
+```python
+from src.inference.pipeline import InferencePipeline
+
+pipeline = InferencePipeline()  # loads model + scaler + feature list once
+predictions = pipeline.predict(raw_engine_readings)  # one row per engine
+```
+
+It auto-detects whether the current canonical model needs regime-aware normalization
+(reading the flag `promote_regime_aware_model.py` writes) — callers don't need to
+track which preprocessing path is currently active. See
+`docs/Sprint_19_Inference_Pipeline.md` for the full input/output contract and how it
+was verified.
+
+This is Phase 1 of the path to production — see that same doc for what's next
+(model packaging, a serving API, testing, containerization, monitoring).
+
+---
+
 ## Documentation Index
 
 Chronological, one file per sprint. Numbering note: Sprints 1–9 (data understanding
@@ -167,6 +192,7 @@ filename style.
 | [16](docs/Sprint_16_GRU_Baseline_MLflow.md) | GRU baseline + MLflow adoption |
 | [17](docs/Sprint_17_Regime_Aware_Normalization.md) | Regime-aware normalization (current model) |
 | [18](docs/Sprint_18_Bucket_Error_Analysis.md) | Bucket-level error analysis of the canonical model |
+| [19](docs/Sprint_19_Inference_Pipeline.md) | Consolidated inference pipeline (Production Phase 1) |
 
 For a runnable, narrated tour of the whole project, see
 `notebooks/00_project_walkthrough.ipynb`.
