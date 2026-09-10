@@ -172,6 +172,58 @@ This is Phase 1 of the path to production — see that same doc for what's next
 
 ---
 
+## Training Pipeline & Model Registry
+
+Training is callable, not just runnable as a script — so it can eventually be
+triggered from an API endpoint, not just a terminal:
+
+```python
+from src.training.pipeline import TrainingPipeline
+
+pipeline = TrainingPipeline()
+result = pipeline.run(n_trials=20, model_names=["catboost", "xgboost", "lightgbm"])
+
+if result.promoted:
+    print(f"New champion: {result.winning_model_name}, MAE {result.champion_metric_after:.3f}")
+```
+
+"Best model" is defined by MLflow's **Model Registry** (alias-based `champion`, not
+the deprecated stages API) — `TrainingPipeline` compares any new candidate's **test**
+metric against the registry's current champion and only promotes (registers a new
+version, moves the alias, updates the local files `InferencePipeline` reads) if it's
+genuinely better. Nothing is overwritten blindly.
+
+**First-time setup**: if you already have a real tuned model logged in MLflow from
+before this registry existed, see `docs/Sprint_20_Training_Pipeline_MLflow_Registry.md`
+for the exact steps to register it as the initial champion, so future training runs
+compare against your real result instead of starting from nothing.
+
+---
+
+## `pipeline/` — Predict, Retrain, and Tune as Callable Entry Points
+
+Three files, all MLflow-native (predict) or MLflow-aware (retrain), and the layer a
+future FastAPI service would call into directly rather than reimplementing:
+
+```bash
+# Predict using the champion model loaded ENTIRELY from MLflow (model +
+# scaler + regime normalizer + feature list — nothing from local files)
+python pipeline/predict.py --input raw_engine_data.csv
+
+# Retrain from raw data using the champion's already-known best hyperparameters
+# (fast — no search, good for periodic retraining on fresh data)
+python pipeline/train_with_best_params.py
+
+# Retrain from raw data with a full hyperparameter search
+python pipeline/train_with_tuning.py --n-trials 20
+```
+
+All three only promote a new model if it genuinely beats the current champion on
+the official test set — see `docs/Sprint_21_Pipeline_Folder_MLflow_Native.md` for
+the full design and real verification results.
+
+---
+
 ## Documentation Index
 
 Chronological, one file per sprint. Numbering note: Sprints 1–9 (data understanding
@@ -193,6 +245,8 @@ filename style.
 | [17](docs/Sprint_17_Regime_Aware_Normalization.md) | Regime-aware normalization (current model) |
 | [18](docs/Sprint_18_Bucket_Error_Analysis.md) | Bucket-level error analysis of the canonical model |
 | [19](docs/Sprint_19_Inference_Pipeline.md) | Consolidated inference pipeline (Production Phase 1) |
+| [20](docs/Sprint_20_Training_Pipeline_MLflow_Registry.md) | Training pipeline + MLflow Model Registry |
+| [21](docs/Sprint_21_Pipeline_Folder_MLflow_Native.md) | `pipeline/` folder — MLflow-native predict, train, tune |
 
 For a runnable, narrated tour of the whole project, see
 `notebooks/00_project_walkthrough.ipynb`.
