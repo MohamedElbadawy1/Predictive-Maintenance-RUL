@@ -117,7 +117,7 @@ class DLTrainer:
         initial_epoch = 0
 
         if resume and self.checkpoint_path.exists() and self.state_path.exists():
-            logger.info(f"Resuming LSTM training from checkpoint: {self.checkpoint_path}")
+            logger.info(f"Resuming {self.model.name} training from checkpoint: {self.checkpoint_path}")
             self.model = keras.models.load_model(self.checkpoint_path)
             with open(self.state_path) as f:
                 state = json.load(f)
@@ -149,7 +149,7 @@ class DLTrainer:
             self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
             logger.info(
-                f"Training LSTM: epochs={initial_epoch}->{max_epochs}, "
+                f"Training {self.model.name}: epochs={initial_epoch}->{max_epochs}, "
                 f"batch_size={batch_size}, patience={patience}."
             )
 
@@ -195,7 +195,7 @@ class DLTrainer:
 
     def predict(self, X: np.ndarray) -> np.ndarray:
 
-        logger.info("Generating predictions using LSTM model...")
+        logger.info(f"Generating predictions using {self.model.name}...")
 
         return self.model.predict(X, verbose=0).flatten()
 

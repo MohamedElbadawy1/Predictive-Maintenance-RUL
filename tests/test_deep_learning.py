@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from src.deep_learning.lstm_model import build_lstm_baseline
+from src.deep_learning.gru_model import build_gru_baseline
 from src.deep_learning.dl_trainer import DLTrainer
 
 
@@ -28,6 +29,28 @@ class TestBuildLstmBaseline(unittest.TestCase):
         layer_types = [layer.__class__.__name__ for layer in model.layers]
 
         self.assertIn("LSTM", layer_types)
+        self.assertIn("Dropout", layer_types)
+        self.assertIn("Dense", layer_types)
+
+
+class TestBuildGruBaseline(unittest.TestCase):
+
+    def test_output_shape(self):
+
+        model = build_gru_baseline(window_size=10, n_features=5)
+
+        X = np.random.rand(4, 10, 5).astype("float32")
+        preds = model.predict(X, verbose=0)
+
+        self.assertEqual(preds.shape, (4, 1))
+
+    def test_layer_stack(self):
+
+        model = build_gru_baseline(window_size=10, n_features=5, gru_units=8, dropout=0.3)
+
+        layer_types = [layer.__class__.__name__ for layer in model.layers]
+
+        self.assertIn("GRU", layer_types)
         self.assertIn("Dropout", layer_types)
         self.assertIn("Dense", layer_types)
 

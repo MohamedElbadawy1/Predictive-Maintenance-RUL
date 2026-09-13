@@ -322,8 +322,11 @@ the ablation:
 - `SequenceGenerator`, feature scaling, and MLflow logging via `DLTrainer` all work
   exactly as designed here — nothing in that design needed to change.
 
-GRU (originally planned as Sprint 13/16) was **not** part of this reconstruction —
-LSTM alone was the agreed scope for this pass. See
+GRU (originally planned as Sprint 13/16) followed immediately after this LSTM
+reconstruction, reusing `SequenceGenerator`, `DLTrainer`, and the same
+`prepare_lstm_sequences()` data prep unchanged — only `build_lstm_baseline` was
+swapped for the new `build_gru_baseline` (`src/deep_learning/gru_model.py`,
+`Pipeline/train_gru.py`). See
 `docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`'s reconstruction note for the current
 test-set result, which now also includes regime-aware normalization (introduced later,
 in Sprint 17) and a fix for the missing `restore_best_weights` this sprint had flagged

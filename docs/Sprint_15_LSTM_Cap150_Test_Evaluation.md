@@ -207,11 +207,11 @@ described above. Two deliberate changes from the original run:
 Re-running the training + test-set evaluation end-to-end on this same 237-engine
 subset with those two changes:
 
-| Metric | CatBoost (existing champion) | LSTM (reconstructed, this note) | LSTM (original, this sprint) |
-|---|---:|---:|---:|
-| Test MAE | 19.02 | **17.62** | 22.53 |
-| Test RMSE | – | 24.62 | – |
-| Test R² | – | 0.786 | – |
+| Metric | CatBoost (existing champion) | LSTM (reconstructed) | GRU (new, same protocol) | LSTM (original, this sprint) |
+|---|---:|---:|---:|---:|
+| Test MAE | 19.02 | **17.62–17.78** (2 runs) | 18.28 | 22.53 |
+| Test RMSE | – | 24.62–24.84 | 24.95 | – |
+| Test R² | – | 0.782–0.786 | 0.780 | – |
 
 The reconstructed LSTM now beats the CatBoost champion on this test subset, reversing
 the original sprint's conclusion. This is **not** evidence that Sprint 15's original
@@ -219,11 +219,15 @@ work or conclusions were wrong — regime-aware normalization did not exist yet,
 missing `restore_best_weights` was already correctly identified here as a limitation.
 It's evidence that both of this sprint's own noted gaps, once closed, mattered.
 
+**GRU, trained with the identical protocol (`Pipeline/train_gru.py`,
+`src/deep_learning/gru_model.py`), lands between the two**: it also beats CatBoost,
+but not by as much as the LSTM does, on this dataset and this single architecture
+size (64 units). That's one data point, not a general "LSTM > GRU" claim — a proper
+comparison would need multiple seeds and at least a small sweep over recurrent-unit
+count, which is future work, not something either run above settles.
+
 This result has **not** been promoted through `TrainingPipeline` / the MLflow
 "champion" alias — it's logged as a standalone comparison run only (see
-`Pipeline/train_lstm.py`). Promoting a sequence model would need its own
-`InferencePipeline` integration (currently CatBoost-shaped), which is out of scope for
-this reconstruction pass.
-
-GRU (Sprint 16 above) remains **not implemented** — this reconstruction covered LSTM
-only.
+`Pipeline/train_lstm.py` and `Pipeline/train_gru.py`). Promoting a sequence model
+would need its own `InferencePipeline` integration (currently CatBoost-shaped), which
+is out of scope for this reconstruction pass.

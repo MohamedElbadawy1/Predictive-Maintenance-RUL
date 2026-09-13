@@ -58,3 +58,4 @@ DEFAULT_RUL_CAP = 150  # updated Sprint 14: cap=150 beat the original 125 on the
 # Sequence Models (LSTM/GRU)
 DEFAULT_WINDOW_SIZE = 30  # Sprint 12/15
 LSTM_CHECKPOINT_PATH = MODELS_DIR / "lstm_baseline.keras"
+GRU_CHECKPOINT_PATH = MODELS_DIR / "gru_baseline.keras"
