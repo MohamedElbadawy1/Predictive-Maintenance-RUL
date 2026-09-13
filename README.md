@@ -224,6 +224,36 @@ the full design and real verification results.
 
 ---
 
+## FastAPI Service (`api/`)
+
+Routes separated into their own folder — `api/routes/predict.py` and
+`api/routes/train.py` — with the app itself, schemas, and shared cached state each
+in their own file:
+
+```bash
+pip install fastapi uvicorn
+uvicorn api.main:app --reload
+```
+
+Then open `http://localhost:8000/docs` for interactive Swagger docs.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /predict/` | Predict RUL for one or more engines |
+| `POST /predict/reload` | Force-reload the cached model after a new promotion |
+| `POST /train/tuning` | Kick off a full hyperparameter search (background job) |
+| `POST /train/best-params` | Retrain with the champion's known params, no search |
+| `GET /train/status/{job_id}` | Poll a training job |
+| `GET /health` / `GET /health/ready` | Liveness / readiness checks |
+
+Training runs as a background job (returns a `job_id` immediately, poll for the
+result) since even a fixed-params retrain takes real time. See
+`docs/Sprint_22_FastAPI_Service.md` for the full design and real end-to-end
+verification (including a real prediction request matching the known reference
+value exactly, and a full training job lifecycle watched start to finish).
+
+---
+
 ## Documentation Index
 
 Chronological, one file per sprint. Numbering note: Sprints 1–9 (data understanding
@@ -247,6 +277,7 @@ filename style.
 | [19](docs/Sprint_19_Inference_Pipeline.md) | Consolidated inference pipeline (Production Phase 1) |
 | [20](docs/Sprint_20_Training_Pipeline_MLflow_Registry.md) | Training pipeline + MLflow Model Registry |
 | [21](docs/Sprint_21_Pipeline_Folder_MLflow_Native.md) | `pipeline/` folder — MLflow-native predict, train, tune |
+| [22](docs/Sprint_22_FastAPI_Service.md) | FastAPI service — separated routes, background training jobs |
 
 For a runnable, narrated tour of the whole project, see
 `notebooks/00_project_walkthrough.ipynb`.
@@ -256,7 +287,7 @@ For a runnable, narrated tour of the whole project, see
 ## Requirements
 
 ```
-pandas, numpy, scikit-learn, xgboost, lightgbm, catboost, optuna, tensorflow-cpu, mlflow
+pandas, numpy, scikit-learn, xgboost, lightgbm, catboost, optuna, tensorflow-cpu, mlflow, fastapi, uvicorn
 ```
 
 See `requirements.txt` for the full pinned list.
