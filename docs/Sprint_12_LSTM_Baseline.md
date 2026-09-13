@@ -300,3 +300,31 @@ Sprint 13+ to help answer, not a foregone conclusion either way.
   (no repeated ablation needed — this sprint already settled that question), same
   split, same comparison protocol — then a final tuning and model-selection pass
   before the test set is finally used.
+
+---
+
+# Reconstruction Note (2026-09)
+
+The `src/deep_learning/` module, `prepare_lstm_sequences.py`, and `train_lstm.py`
+described above were lost along with everything else noted in
+`docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`'s "What Was Lost" section. They have
+been rebuilt, reusing this sprint's already-settled decisions rather than repeating
+the ablation:
+
+- **Raw 25-feature set only** — the 109-feature ablation run was *not* repeated, since
+  this sprint already answered that question conclusively (raw beats engineered by
+  15.8% MAE for the LSTM). Only the raw-feature path was rebuilt.
+- Same architecture: `LSTM(64) -> Dropout(0.2) -> Dense(1)`.
+- **Leaner file layout**: a single `Pipeline/train_lstm.py` now does sequence
+  preparation and training together (no separate `prepare_lstm_sequences.py` — one
+  script instead of two, no separate `--feature-set` flag since raw is the only
+  supported path now).
+- `SequenceGenerator`, feature scaling, and MLflow logging via `DLTrainer` all work
+  exactly as designed here — nothing in that design needed to change.
+
+GRU (originally planned as Sprint 13/16) was **not** part of this reconstruction —
+LSTM alone was the agreed scope for this pass. See
+`docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`'s reconstruction note for the current
+test-set result, which now also includes regime-aware normalization (introduced later,
+in Sprint 17) and a fix for the missing `restore_best_weights` this sprint had flagged
+as a known gap.

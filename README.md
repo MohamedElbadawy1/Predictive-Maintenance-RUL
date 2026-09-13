@@ -222,6 +222,17 @@ All three only promote a new model if it genuinely beats the current champion on
 the official test set — see `docs/Sprint_21_Pipeline_Folder_MLflow_Native.md` for
 the full design and real verification results.
 
+A fourth script, `Pipeline/train_lstm.py`, trains the LSTM baseline
+(`src/deep_learning/`) from raw data through to a test-set evaluation, logged to
+MLflow as a comparison run. It is **not** part of the champion-promotion flow above —
+see `docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`'s reconstruction note for why and
+for the current LSTM-vs-CatBoost result:
+
+```bash
+python Pipeline/train_lstm.py                # train + evaluate, resumes automatically
+python Pipeline/train_lstm.py --no-resume     # restart training from epoch 0
+```
+
 ---
 
 ## FastAPI Service (`api/`)

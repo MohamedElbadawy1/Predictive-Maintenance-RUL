@@ -186,3 +186,44 @@ would recover those 11 engines at the cost of less temporal context per predicti
   cap=150 labels from day one — no ablation or cap-correction retrofit needed, both
   questions are already answered. The fair test-set comparison protocol
   (`get_last_window`, same-subset CatBoost comparison) is ready to reuse directly.
+
+---
+
+# Reconstruction Note (2026-09)
+
+`src/deep_learning/`, `prepare_lstm_sequences.py`, and `train_lstm.py` were lost to
+the sandbox reset described above (the code, not just the run artifacts). They have
+been rebuilt as `src/deep_learning/lstm_model.py`, `src/deep_learning/dl_trainer.py`,
+and a single `Pipeline/train_lstm.py` — same architecture, same raw-25-feature set,
+same `cap=150`, same `SequenceGenerator.get_last_window()`-based test protocol
+described above. Two deliberate changes from the original run:
+
+1. **Regime-aware normalization is now applied** (`RegimeNormalizer`, introduced later
+   in Sprint 17 for CatBoost) — it wasn't available when this sprint originally ran,
+   and there's no reason to withhold it from the LSTM path now that it exists.
+2. **`EarlyStopping(restore_best_weights=True)`** — Sprint 12 explicitly flagged the
+   missing `restore_best_weights` as a gap; it's fixed here.
+
+Re-running the training + test-set evaluation end-to-end on this same 237-engine
+subset with those two changes:
+
+| Metric | CatBoost (existing champion) | LSTM (reconstructed, this note) | LSTM (original, this sprint) |
+|---|---:|---:|---:|
+| Test MAE | 19.02 | **17.62** | 22.53 |
+| Test RMSE | – | 24.62 | – |
+| Test R² | – | 0.786 | – |
+
+The reconstructed LSTM now beats the CatBoost champion on this test subset, reversing
+the original sprint's conclusion. This is **not** evidence that Sprint 15's original
+work or conclusions were wrong — regime-aware normalization did not exist yet, and the
+missing `restore_best_weights` was already correctly identified here as a limitation.
+It's evidence that both of this sprint's own noted gaps, once closed, mattered.
+
+This result has **not** been promoted through `TrainingPipeline` / the MLflow
+"champion" alias — it's logged as a standalone comparison run only (see
+`Pipeline/train_lstm.py`). Promoting a sequence model would need its own
+`InferencePipeline` integration (currently CatBoost-shaped), which is out of scope for
+this reconstruction pass.
+
+GRU (Sprint 16 above) remains **not implemented** — this reconstruction covered LSTM
+only.

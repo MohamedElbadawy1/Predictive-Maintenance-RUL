@@ -54,3 +54,7 @@ SCALER = "standard"
 # Target Engineering
 DEFAULT_RUL_CAP = 150  # updated Sprint 14: cap=150 beat the original 125 on the
                          # official test set (test MAE 19.26 vs 20.26), evidence-based
+
+# Sequence Models (LSTM/GRU)
+DEFAULT_WINDOW_SIZE = 30  # Sprint 12/15
+LSTM_CHECKPOINT_PATH = MODELS_DIR / "lstm_baseline.keras"
