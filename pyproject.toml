@@ -6,13 +6,20 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "catboost>=1.2.10",
+    "fastapi>=0.115.0",
     "ipykernel>=7.3.0",
+    "joblib>=1.4.0",
     "lightgbm>=4.7.0",
+    "matplotlib>=3.9.0",
     "mlflow>=3.15.2",
     "numpy>=2.2.6",
     "optuna>=4.9.0",
     "pandas>=2.3.3",
+    "requests>=2.31.0",
     "scikit-learn>=1.7.2",
+    "shap>=0.46.0",
+    "streamlit>=1.38.0",
     "tensorflow>=2.21.0",
+    "uvicorn>=0.32.0",
     "xgboost>=3.2.0",
 ]

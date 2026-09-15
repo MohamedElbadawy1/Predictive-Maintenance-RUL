@@ -1,0 +1,22 @@
+# Generated / local-only — never needed in the build context
+artifacts/
+mlruns/
+catboost_info/
+logs/
+__pycache__/
+*.pyc
+.venv/
+.git/
+
+# Large, and mounted as a volume at runtime instead of baked into the
+# image (see docker-compose.yml) — training reads it from the volume,
+# serving never needs it (predictions arrive in the request body)
+data/
+
+# Not needed at runtime (but NOT uv.lock — the Dockerfile itself
+# COPYs it during the build, excluding it here breaks that step)
+notebooks/
+tests/
+reports/
+docs/
+*.md

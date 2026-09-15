@@ -1,0 +1,43 @@
+# Two services sharing one image (see Dockerfile) — the API serves
+# predictions from the MLflow champion, the frontend is a thin
+# Streamlit client that calls the API over the compose network.
+#
+# Usage:
+#   docker compose up --build
+#   API:       http://localhost:8000/docs
+#   Frontend:  http://localhost:8501
+#
+# First run has no champion yet (artifacts/ starts empty) — train one
+# from inside the api container before /predict will work:
+#   docker compose exec api python Pipeline/train_with_tuning.py --n-trials 20
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Shared with the host so a champion trained here (or on the
+      # host directly) is visible to both services and survives
+      # `docker compose down`.
+      - ./artifacts:/app/artifacts
+      # Read-only: needed for training, never for serving (a request's
+      # own body is what /predict scores).
+      - ./data:/app/data:ro
+    command: uv run uvicorn api.api_main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    command: uv run streamlit run frontend/app.py --server.address 0.0.0.0 --server.port 8501

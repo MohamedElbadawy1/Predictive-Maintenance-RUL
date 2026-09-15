@@ -1,3 +1,8 @@
+# Kept in sync with pyproject.toml's [project.dependencies] — the
+# earlier drift between the two (this file was missing mlflow, fastapi,
+# uvicorn, joblib, matplotlib, shap) meant `pip install -r
+# requirements.txt` alone could never actually run this project;
+# it surfaced for real once the Dockerfile depended on it.
 pandas
 numpy
 scikit-learn
@@ -6,3 +11,11 @@ lightgbm
 catboost
 optuna
 tensorflow-cpu
+streamlit
+requests
+mlflow
+fastapi
+uvicorn
+joblib
+matplotlib
+shap
