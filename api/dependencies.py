@@ -33,7 +33,7 @@ class PipelineCache:
             if self._pipeline is None:
                 # Imported here, not at module load time, so importing
                 # this module doesn't require MLflow to be reachable.
-                from pipeline.predict import MLflowInferencePipeline
+                from src.pipelines.inference_pipeline import MLflowInferencePipeline
                 logger.info("Loading MLflowInferencePipeline (first request)...")
                 self._pipeline = MLflowInferencePipeline()
             return self._pipeline
@@ -41,7 +41,7 @@ class PipelineCache:
     def reload(self):
 
         with self._lock:
-            from pipeline.predict import MLflowInferencePipeline
+            from src.pipelines.inference_pipeline import MLflowInferencePipeline
             logger.info("Reloading MLflowInferencePipeline (champion may have changed)...")
             self._pipeline = MLflowInferencePipeline()
             return self._pipeline
