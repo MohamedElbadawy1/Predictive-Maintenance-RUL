@@ -207,27 +207,122 @@ described above. Two deliberate changes from the original run:
 Re-running the training + test-set evaluation end-to-end on this same 237-engine
 subset with those two changes:
 
-| Metric | CatBoost (existing champion) | LSTM (reconstructed) | GRU (new, same protocol) | LSTM (original, this sprint) |
-|---|---:|---:|---:|---:|
-| Test MAE | 19.02 | **17.62–17.78** (2 runs) | 18.28 | 22.53 |
-| Test RMSE | – | 24.62–24.84 | 24.95 | – |
-| Test R² | – | 0.782–0.786 | 0.780 | – |
+**Official result (seed=42, matching `RANDOM_STATE` used everywhere else in this
+project — this is the number to cite):**
 
-The reconstructed LSTM now beats the CatBoost champion on this test subset, reversing
-the original sprint's conclusion. This is **not** evidence that Sprint 15's original
-work or conclusions were wrong — regime-aware normalization did not exist yet, and the
-missing `restore_best_weights` was already correctly identified here as a limitation.
-It's evidence that both of this sprint's own noted gaps, once closed, mattered.
+| Metric | CatBoost (existing champion) | LSTM (seed=42) | GRU (seed=42) |
+|---|---:|---:|---:|
+| Test MAE | 19.02 | 17.69 | **16.74** |
+| Test RMSE | – | 24.57 | 22.63 |
+| Test R² | – | 0.787 | 0.819 |
 
-**GRU, trained with the identical protocol (`Pipeline/train_gru.py`,
-`src/deep_learning/gru_model.py`), lands between the two**: it also beats CatBoost,
-but not by as much as the LSTM does, on this dataset and this single architecture
-size (64 units). That's one data point, not a general "LSTM > GRU" claim — a proper
-comparison would need multiple seeds and at least a small sweep over recurrent-unit
-count, which is future work, not something either run above settles.
+Both sequence models beat the CatBoost champion on this test subset under the
+official seed, reversing the original sprint's conclusion. This is **not** evidence
+that Sprint 15's original work or conclusions were wrong — regime-aware normalization
+did not exist yet, and the missing `restore_best_weights` was already correctly
+identified here as a limitation. It's evidence that both of this sprint's own noted
+gaps, once closed, mattered.
+
+**A caveat that matters as much as the table above**: before `--seed` was added, the
+same code produced LSTM test MAE anywhere from 17.62 to 18.22, and GRU anywhere from
+16.94 to 18.28, across otherwise-identical runs. A follow-up check training GRU for a
+fixed, shorter epoch budget (so all runs are equally under-trained, isolating pure
+seed effect) across seeds 42/7/123 gave test MAE 20.30 / 19.41 / 19.37 — roughly a
+1-point MAE spread from the random seed alone. The 0.95 MAE gap between LSTM and GRU
+in the official table above is **not much larger than that spread**. The honest
+reading is: **both sequence models are competitive with and likely better than
+CatBoost on this test subset; GRU came out ahead under the project's standard
+seed, but that specific ordering should not be treated as a settled architecture
+comparison** without averaging multiple seeds per model, which is future work, not
+something this pass settles.
 
 This result has **not** been promoted through `TrainingPipeline` / the MLflow
 "champion" alias — it's logged as a standalone comparison run only (see
 `Pipeline/train_lstm.py` and `Pipeline/train_gru.py`). Promoting a sequence model
 would need its own `InferencePipeline` integration (currently CatBoost-shaped), which
 is out of scope for this reconstruction pass.
+
+## Corrected note: the "champion" registered on this machine was never test-evaluated (2026-09)
+
+While wiring up `Pipeline/ensemble_evaluate.py`, the currently-registered champion
+(run `032fa339...`) looked badly broken when scored against the official test set —
+first suspected as a `Pipeline/predict.py` serving-skew bug (see the path-hardcoding
+fix that shipped alongside this note; that fix is real and independently worth
+keeping). That diagnosis turned out to be **wrong** on closer reading of
+`src/training/pipeline.py`.
+
+**What's actually going on**: `TrainingPipeline._promote_if_better()` logs the real
+held-out test score under prefixed keys (`test_MAE`, `test_RMSE`, ...), separately
+from the bare `MAE`/`RMSE` that `BaseTrainer.train()` logs internally from the
+validation split. `get_champion_run_info()`'s metrics dict for this champion contains
+only the bare keys (`MAE: 17.08`, no `test_MAE` at all) — meaning this run was
+registered as champion **without ever going through the real promotion/test-scoring
+flow** (most likely bootstrapped directly per
+`docs/Sprint_20_Training_Pipeline_MLflow_Registry.md`'s "register your existing best
+run as initial champion" step). The 17.08 everyone (including this note, earlier) was
+citing as "the champion's test MAE" was its **validation** MAE. Its real test-set
+score was never logged, and turned out to be much worse (~45 MAE) once actually
+measured here — a real generalization gap for this particular run, not a
+feature-reconstruction bug.
+
+**The actual fix**: run the real pipeline so a champion gets properly test-scored and
+promoted through `_promote_if_better()`:
+
+```bash
+python Pipeline/train_with_tuning.py --n-trials 20
+```
+
+This registers a champion with a genuine `test_MAE` logged — and if it doesn't beat
+whatever's currently registered, `TrainingPipeline` won't promote it, which is the
+whole point of that check. Re-run `Pipeline/ensemble_evaluate.py` after that; its
+CatBoost numbers should land close to the ~19 MAE this project has cited elsewhere,
+not the ~45 seen here.
+
+**What's still worth keeping regardless**: the hardcoded absolute path fix in
+`Pipeline/predict.py`, `train_with_tuning.py`, and `train_with_best_params.py` (these
+scripts could not run at all on this machine before that fix) — and treating
+`get_champion_run_info()`'s bare metric keys with suspicion going forward: check for
+`test_MAE` specifically before trusting a number as the held-out test score.
+
+**Workaround kept in the ensemble script anyway**: `Pipeline/ensemble_evaluate.py`
+still gets CatBoost's test predictions via `prepare_training_data()` directly (the
+path `TrainingPipeline` itself uses to compute and log the real `test_MAE`), not via
+`MLflowInferencePipeline`. This remains the simpler, more direct path for an offline
+comparison script regardless — but `Pipeline/predict.py` itself is not confirmed
+broken; it was only ever tested here against a champion with no real logged test
+score to validate against. Once a properly-promoted champion exists (`test_MAE`
+present), `Pipeline/predict.py` is worth re-testing on its own merits before assuming
+anything is wrong with it.
+
+## Final result, with a properly test-scored champion (2026-09)
+
+After running the real `Pipeline/train_with_tuning.py --n-trials 20` (all three model
+families: catboost, xgboost, lightgbm), CatBoost genuinely won on the official test
+set again — `test_MAE` this time, not a validation number mistaken for one — and was
+promoted as champion:
+
+| Model | Test MAE | Test R² |
+|---|---:|---:|
+| CatBoost (new champion, real `test_MAE`) | 18.72 | 0.780 |
+| LSTM (seed=42) | 17.69 | 0.787 |
+| GRU (seed=42) | 16.74 | 0.819 |
+| CatBoost + LSTM | 17.30 | 0.803 |
+| CatBoost + GRU | 16.85 | 0.816 |
+| **LSTM + GRU** | **16.39** | **0.822** |
+| CatBoost + LSTM + GRU | 16.53 | 0.820 |
+
+**Best result in the project: a simple average of LSTM and GRU predictions (16.39
+MAE)** — a real ~2% improvement over the best single model (GRU alone), not noise.
+Adding CatBoost into that mix makes it slightly *worse* (16.39 → 16.53): CatBoost's
+errors aren't diverse enough from LSTM/GRU's to help (same underlying data, same RUL
+cap, same test engines), while LSTM and GRU are architecturally different enough for
+averaging to actually help.
+
+**This is not registered as the MLflow champion.** The alias-based champion system
+(`TrainingPipeline`, `Pipeline/predict.py`, `InferencePipeline`) is built entirely
+around single tabular models scoring one row per engine — GRU needs a 30-cycle
+sequence window as input, and the LSTM+GRU result is an average of two models, not
+one. Swapping the champion alias to point at GRU would silently break
+`Pipeline/predict.py` (it would keep building tabular features and feed them to a
+model that expects sequences). Serving this result in production would need its own
+sequence-aware `InferencePipeline` — tracked as future MLOps work, not done here.

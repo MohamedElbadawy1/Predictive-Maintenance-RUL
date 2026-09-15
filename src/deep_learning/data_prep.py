@@ -132,5 +132,6 @@ def prepare_lstm_sequences(
         "X_train": X_train, "y_train": y_train,
         "X_val": X_val, "y_val": y_val,
         "X_test": X_test, "y_test_true": y_test_true,
+        "test_engine_ids": test_engine_ids,
         "scaler": scaler,
     }

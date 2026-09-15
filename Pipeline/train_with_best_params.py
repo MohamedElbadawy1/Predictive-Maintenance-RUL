@@ -19,7 +19,8 @@ Usage:
 import argparse
 import sys
 
-sys.path.insert(0, "/home/claude/Predictive-Maintenance-RUL")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.training.pipeline import TrainingPipeline, REGISTRY_MODEL_NAME
 from src.experiments.mlflow_tracker import MLflowTracker

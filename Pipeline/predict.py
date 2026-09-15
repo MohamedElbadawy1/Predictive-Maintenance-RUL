@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, "/home/claude/Predictive-Maintenance-RUL")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import joblib
 import mlflow
