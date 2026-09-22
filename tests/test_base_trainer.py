@@ -25,7 +25,7 @@ class TestBaseTrainer(unittest.TestCase):
 
     def setUp(self):
 
-        self.trainer = DummyTrainer()
+        self.trainer = DummyTrainer(model=LinearRegression())
 
         self.X = pd.DataFrame({
             "x": [1, 2, 3, 4, 5]

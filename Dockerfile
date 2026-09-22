@@ -20,11 +20,17 @@ RUN apt-get update \
 # networks (corporate proxies, certain ISPs) block ghcr.io specifically
 # while PyPI works fine, which is exactly what happened building this
 # image the first time.
-RUN pip install --no-cache-dir uv
+#
+# --timeout/--retries: this image has been built at least once over a
+# very slow connection (~50 KB/s observed), slow enough that pip's
+# default read timeout tripped on a 20 MB wheel. Generous values here
+# cost nothing on a fast connection and avoid a full rebuild on a slow
+# one.
+RUN pip install --no-cache-dir --timeout 300 --retries 5 uv
 
 WORKDIR /app
 
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_HTTP_TIMEOUT=300
 
 # Install dependencies before copying the rest of the app — this layer
 # only rebuilds when pyproject.toml/uv.lock change, not on every code

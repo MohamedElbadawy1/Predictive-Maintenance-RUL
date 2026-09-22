@@ -19,7 +19,7 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "shap>=0.46.0",
     "streamlit>=1.38.0",
-    "tensorflow>=2.21.0",
+    "tensorflow-cpu>=2.21.0",
     "uvicorn>=0.32.0",
     "xgboost>=3.2.0",
 ]
