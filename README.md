@@ -11,23 +11,34 @@ fixed schedule or after something breaks.
 
 ## Current Best Model
 
-| | |
-|---|---|
-| **Model** | CatBoost, regime-aware normalization, Optuna-tuned |
-| **Test MAE** | **19.133** (official, unseen `test_FD004` engines) |
-| **Test RMSE** | 25.367 |
-| **Test R²** | 0.784 |
-| **Features** | 109 (of 151 engineered), frozen via experiment (Sprint 10) |
-| **RUL cap** | 150 (found via experiment, Sprint 14) |
-| **Normalization** | Per-operating-regime (6 regimes), not global (Sprint 17) |
+Three model families were trained and evaluated on the same official, held-out
+`test_FD004` engines. A simple average of the two sequence models beats every
+single model individually — not by a trivial margin:
 
-Full history of how this model was arrived at — including the dead ends and negative
-results — is in [`docs/`](#documentation-index) below. Every number in this project
-comes from a real experiment; nothing here is assumed.
+| Model | Test MAE | Test R² |
+|---|---:|---:|
+| CatBoost (MLflow "champion" — the one actually served) | 18.72–19.13 | 0.78 |
+| LSTM (seed=42) | 17.69 | 0.787 |
+| GRU (seed=42) | 16.74 | 0.819 |
+| **LSTM + GRU average (best result, not served)** | **16.39** | **0.822** |
 
-**Important**: this model requires an extra preprocessing step most of the project's
-history didn't need — see [Regime-Aware Normalization](#regime-aware-normalization)
-below before using `best_model.pkl` directly.
+The LSTM+GRU average is the strongest result in this project, but it is **not**
+what the API actually serves — CatBoost remains the registered MLflow "champion"
+because promoting a sequence-model average would need its own sequence-aware
+serving path (`MLflowInferencePipeline` currently expects one tabular row per
+engine, not a 30-cycle window), which hasn't been built yet. See
+[`docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`](docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md)
+for the full comparison, the reconstruction history behind it, and why single-seed
+results here should be read with real caution (documented seed-to-seed variance of
+roughly ±1 MAE point).
+
+Full history of how the CatBoost model was arrived at — including the dead ends and
+negative results — is in [`docs/`](#documentation-index) below. Every number in this
+project comes from a real experiment; nothing here is assumed.
+
+**Important**: the served model requires an extra preprocessing step most of the
+project's history didn't need — see [Regime-Aware Normalization](#regime-aware-normalization)
+below.
 
 ---
 
@@ -59,48 +70,65 @@ src/
 │                               importance-based reduction
 ├── models/                     Model factory, trainer (with built-in MLflow
 │                               tracking), weighted ensemble
-├── deep_learning/              LSTM/GRU sequence models
+├── deep_learning/              LSTM/GRU models, shared sequence data prep
 ├── optimization/               Optuna hyperparameter tuning (CatBoost/XGBoost/
 │                               LightGBM)
 ├── evaluation/                 Regression metrics (MAE, RMSE, R², MAPE)
 ├── experiments/                MLflow tracking setup
-├── inference/                   Consolidated production inference pipeline
+├── training/                   TrainingPipeline — tuning, promotion, registry
+├── pipelines/                  MLflowInferencePipeline — loads the champion +
+│                               its preprocessing artifacts entirely from MLflow
 └── config/config.py            Single source of truth for every path and constant
 
+Pipeline/                       Thin CLI entry points — see the table below
+api/                            FastAPI service (see FastAPI Service, below)
+frontend/                       Streamlit UI that calls the API
 notebooks/                     One notebook per pipeline stage, real outputs saved
 docs/                          One doc per sprint — goal, method, real results
+tests/                         unittest suite — models, preprocessing, deep
+                               learning, API, frontend client
 artifacts/                     Generated: models, scalers, processed data, MLflow store
 reports/                       Generated: experiment result CSVs
+Dockerfile, docker-compose.yml  Containerized api + frontend services
+.github/workflows/ci.yml        Runs the test suite, then builds both images
 ```
 
-Root-level pipeline scripts (each also has a matching notebook where noted):
+`Pipeline/` scripts (thin wrappers — the actual logic lives in `src/`):
 
 | Script | What it does |
 |---|---|
-| `tune_and_ensemble.py` | Full pipeline: raw data → tuned CatBoost/XGBoost/LightGBM → ensemble |
-| `tune_and_ensemble_regime_aware.py` | Same, with regime-aware normalization |
-| `regime_normalization_experiment.py` | Controlled A/B: regime-aware vs. global scaling |
-| `rul_cap_experiment.py` | Compares RUL cap strategies (no cap, 125, 150, 175, 195) |
-| `train_lstm.py` / `train_gru.py` | Resumable sequence-model training with checkpointing |
-| `promote_regime_aware_model.py` | Promotes a tuning result to canonical `best_model.pkl` |
-| `bucket_error_analysis.py` | Breaks the canonical model's test error down by true RUL range |
+| `train_with_tuning.py` | Full pipeline: raw data → Optuna-tuned CatBoost/XGBoost/LightGBM → promotes the best if it beats the current champion |
+| `train_with_best_params.py` | Retrains with the champion's already-known best hyperparameters (no search) |
+| `predict.py` | CLI: load the champion from MLflow, predict on a CSV of raw engine readings |
+| `train_lstm.py` / `train_gru.py` | Resumable sequence-model training with checkpointing, seed control, and an official test-set evaluation |
+| `ensemble_evaluate.py` | Blends CatBoost + LSTM + GRU predictions on the same test engines and reports every combination |
 
 ---
 
 ## Quickstart
 
+This project uses [`uv`](https://docs.astral.sh/uv/) (a `requirements.txt` is also
+kept in sync for a plain-pip workflow):
+
 ```bash
-pip install -r requirements.txt
+uv sync
 
-# Full pipeline from raw data: tuning + ensemble, all three traditional ML models
-python tune_and_ensemble.py --n-trials 20
+# Full pipeline from raw data: Optuna tuning across all three traditional ML
+# models, promotes the winner as champion if it beats the current one
+uv run python Pipeline/train_with_tuning.py --n-trials 20
 
-# Same, with regime-aware normalization (current best)
-python tune_and_ensemble_regime_aware.py --n-trials 20
+# LSTM / GRU baselines (same official test-set protocol as CatBoost)
+uv run python Pipeline/train_lstm.py
+uv run python Pipeline/train_gru.py
+
+# Compare all three models and their blends on the same test engines
+uv run python Pipeline/ensemble_evaluate.py
 ```
 
-Both scripts are self-contained — they rebuild everything from `data/raw/`, they
-don't assume any cached intermediate file already exists.
+Or run everything containerized — see [Docker](#docker) below.
+
+Every script above is self-contained — it rebuilds what it needs from `data/raw/`,
+it doesn't assume any cached intermediate file already exists.
 
 ---
 
@@ -121,10 +149,12 @@ test_normalized = normalizer.transform(test_df)                    # predict, ne
 ```
 
 This must run **before** feature engineering — rolling/lag/diff features are computed
-on the normalized values, not raw ones. See `docs/Sprint_17_Regime_Aware_Normalization.md`
-for the full experiment (controlled A/B test, then a full re-tuned pipeline) and an
-honest discussion of where it helped and where it didn't (the ensemble, notably,
-underperformed its own best member under this normalization).
+on the normalized values, not raw ones. This is a case where the doc referenced in
+early sprint planning (`Sprint_17_Regime_Aware_Normalization.md`) was never actually
+written — see the [Documentation Index](#documentation-index)'s note on Sprints 16–17
+for what happened instead. The honest result: it helped the individual CatBoost,
+LSTM, and GRU models (see [Current Best Model](#current-best-model)), but the
+CatBoost+LSTM+GRU ensemble underperformed its own best member under it.
 
 ---
 
@@ -150,25 +180,31 @@ Then open `http://localhost:5000`.
 
 ## Production Inference
 
-`InferencePipeline` is the single place raw-sensor-data-to-prediction logic lives —
-every analysis script's ad-hoc version of this chain has been consolidated into one
-class:
+`MLflowInferencePipeline` is the single place raw-sensor-data-to-prediction logic
+lives — every analysis script's ad-hoc version of this chain has been consolidated
+into one class, and it loads the model, scaler, regime normalizer, and feature list
+**entirely from MLflow** — nothing from local files:
 
 ```python
-from src.inference.pipeline import InferencePipeline
+from src.pipelines.inference_pipeline import MLflowInferencePipeline
 
-pipeline = InferencePipeline()  # loads model + scaler + feature list once
+pipeline = MLflowInferencePipeline()  # loads the champion + its artifacts once
 predictions = pipeline.predict(raw_engine_readings)  # one row per engine
 ```
 
-It auto-detects whether the current canonical model needs regime-aware normalization
-(reading the flag `promote_regime_aware_model.py` writes) — callers don't need to
-track which preprocessing path is currently active. See
-`docs/Sprint_19_Inference_Pipeline.md` for the full input/output contract and how it
-was verified.
+It auto-detects whether the current champion needs regime-aware normalization by
+reading the `requires_regime_normalizer` tag `TrainingPipeline` sets on every
+promoted run — callers don't need to track which preprocessing path is currently
+active.
 
-This is Phase 1 of the path to production — see that same doc for what's next
-(model packaging, a serving API, testing, containerization, monitoring).
+This class is what both `Pipeline/predict.py` (CLI) and the FastAPI service
+(`api/dependencies.py`) call — it used to live inside `Pipeline/predict.py` itself,
+which caused a real bug: importing it cross-folder from `api/` broke depending on
+the checked-out folder's exact case (fine on some machines, silently broken on
+others, and reliably broken inside the Linux-based Docker image). Moving it to
+`src/` fixed that for good — see
+[`docs/Sprint_19_Inference_Pipeline.md`](docs/Sprint_19_Inference_Pipeline.md) for
+the original input/output contract.
 
 ---
 
@@ -189,33 +225,40 @@ if result.promoted:
 
 "Best model" is defined by MLflow's **Model Registry** (alias-based `champion`, not
 the deprecated stages API) — `TrainingPipeline` compares any new candidate's **test**
-metric against the registry's current champion and only promotes (registers a new
-version, moves the alias, updates the local files `InferencePipeline` reads) if it's
-genuinely better. Nothing is overwritten blindly.
+metric (logged under the `test_MAE` key specifically — a run's bare `MAE` metric is
+its *validation* score, logged earlier by `BaseTrainer.train()`; conflating the two
+caused a real, documented false alarm during this project's own development, see
+[`docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`](docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md))
+against the registry's current champion and only promotes if it's genuinely better.
+Nothing is overwritten blindly.
 
 **First-time setup**: if you already have a real tuned model logged in MLflow from
 before this registry existed, see `docs/Sprint_20_Training_Pipeline_MLflow_Registry.md`
 for the exact steps to register it as the initial champion, so future training runs
 compare against your real result instead of starting from nothing.
 
+**Rolling back to a previous champion** — no retraining required — is documented in
+[`docs/Rollback_Strategy.md`](docs/Rollback_Strategy.md).
+
 ---
 
-## `pipeline/` — Predict, Retrain, and Tune as Callable Entry Points
+## `Pipeline/` — Predict, Retrain, and Tune as Callable Entry Points
 
-Three files, all MLflow-native (predict) or MLflow-aware (retrain), and the layer a
-future FastAPI service would call into directly rather than reimplementing:
+Thin CLI wrappers — the actual logic lives in `src/` (see
+[Project Structure](#project-structure)) — and the layer the FastAPI service calls
+into directly rather than reimplementing:
 
 ```bash
 # Predict using the champion model loaded ENTIRELY from MLflow (model +
 # scaler + regime normalizer + feature list — nothing from local files)
-python pipeline/predict.py --input raw_engine_data.csv
+python Pipeline/predict.py --input raw_engine_data.csv
 
 # Retrain from raw data using the champion's already-known best hyperparameters
 # (fast — no search, good for periodic retraining on fresh data)
-python pipeline/train_with_best_params.py
+python Pipeline/train_with_best_params.py
 
 # Retrain from raw data with a full hyperparameter search
-python pipeline/train_with_tuning.py --n-trials 20
+python Pipeline/train_with_tuning.py --n-trials 20
 ```
 
 All three only promote a new model if it genuinely beats the current champion on
@@ -235,6 +278,14 @@ python Pipeline/train_lstm.py --no-resume     # restart training from epoch 0
 python Pipeline/train_gru.py                  # same protocol, GRU instead of LSTM
 ```
 
+A sixth script, `Pipeline/ensemble_evaluate.py`, blends CatBoost + LSTM + GRU
+predictions on the same test engines and reports every combination — this is where
+the LSTM+GRU result in [Current Best Model](#current-best-model) comes from:
+
+```bash
+python Pipeline/ensemble_evaluate.py
+```
+
 ---
 
 ## FastAPI Service (`api/`)
@@ -244,26 +295,97 @@ Routes separated into their own folder — `api/routes/predict.py` and
 in their own file:
 
 ```bash
-pip install fastapi uvicorn
-uvicorn api.main:app --reload
+uv run uvicorn api.api_main:app --reload
 ```
 
 Then open `http://localhost:8000/docs` for interactive Swagger docs.
 
 | Endpoint | What it does |
 |---|---|
+| `GET /health` | Liveness check — always `{"status": "ok"}` if the process is up |
+| `GET /health/ready` | Readiness — whether the champion model has been loaded yet |
 | `POST /predict/` | Predict RUL for one or more engines |
 | `POST /predict/reload` | Force-reload the cached model after a new promotion |
 | `POST /train/tuning` | Kick off a full hyperparameter search (background job) |
 | `POST /train/best-params` | Retrain with the champion's known params, no search |
 | `GET /train/status/{job_id}` | Poll a training job |
-| `GET /health` / `GET /health/ready` | Liveness / readiness checks |
 
-Training runs as a background job (returns a `job_id` immediately, poll for the
-result) since even a fixed-params retrain takes real time. See
-`docs/Sprint_22_FastAPI_Service.md` for the full design and real end-to-end
-verification (including a real prediction request matching the known reference
-value exactly, and a full training job lifecycle watched start to finish).
+**Auth**: `/predict/*` and `/train/*` are open by default — fine for local use.
+Setting an `API_KEY` environment variable before starting the service requires every
+request to those routes to send a matching `X-API-Key` header (`/health` stays open
+either way, for orchestration/monitoring tools that shouldn't need a key):
+
+```bash
+API_KEY=your-secret-here uv run uvicorn api.api_main:app
+```
+
+```bash
+curl -H "X-API-Key: your-secret-here" -X POST http://localhost:8000/predict/ -d '...'
+```
+
+---
+
+## Frontend (`frontend/`)
+
+A minimal Streamlit UI that calls the API above — upload a CSV of raw engine
+readings, get each engine's predicted RUL as a table and a chart. It never loads a
+model itself; it's a thin HTTP client (`frontend/api_client.py`) in front of the API:
+
+```bash
+# in a separate terminal, with the API already running
+uv run streamlit run frontend/app.py
+```
+
+Then open `http://localhost:8501`. The sidebar takes the API's base URL and, if
+you've set one, its `API_KEY` — both also read from environment variables of the
+same name, so they're filled in automatically under Docker Compose.
+
+---
+
+## Docker
+
+Both services share one image (`Dockerfile`), built with `uv` from `pyproject.toml`
++ `uv.lock` (this project's real dependency source of truth — `requirements.txt` is
+kept in sync for a plain-pip workflow, but Docker uses the lockfile for fully
+reproducible installs):
+
+```bash
+docker compose up --build
+```
+
+- API: `http://localhost:8000/docs`
+- Frontend: `http://localhost:8501`
+
+First run has no champion yet (`artifacts/` starts empty) — train one from inside
+the container before `/predict` will work:
+
+```bash
+docker compose exec api python Pipeline/train_with_tuning.py --n-trials 20
+```
+
+To require an API key, set `API_KEY` before starting (`export API_KEY=...` or a
+`.env` file next to `docker-compose.yml`) — both services pick it up automatically.
+
+`artifacts/` and `data/` are mounted as volumes, not baked into the image: a
+champion trained inside the container is visible on the host and survives
+`docker compose down`, and raw CMAPSS data never needs to be copied into the image
+at all.
+
+---
+
+## CI (`.github/workflows/ci.yml`)
+
+Runs on every push and pull request to `main`: installs dependencies from
+`uv.lock`, runs the full test suite (models, preprocessing, deep learning, the API,
+and the frontend's API client), and — only if tests pass — builds both Docker
+images to confirm they still build cleanly.
+
+Training runs as a background job (`POST /train/*` returns a `job_id` immediately,
+`GET /train/status/{job_id}` polls for the result) since even a fixed-params retrain
+takes real time. See `docs/Sprint_22_FastAPI_Service.md` for the full design and
+real end-to-end verification (including a real prediction request matching the
+known reference value exactly, and a full training job lifecycle watched start to
+finish).
 
 ---
 
@@ -283,14 +405,14 @@ filename style.
 | [12](docs/Sprint_12_LSTM_Baseline.md) | LSTM Baseline + the raw-features discovery |
 | [13](docs/Sprint_13_Final_Test_Evaluation.md) | First official test-set evaluation |
 | [14](docs/Sprint_14_RUL_Cap_Investigation.md) | RUL cap investigation — 125 → 150 |
-| [15](docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md) | Fair CatBoost vs. LSTM comparison |
-| [16](docs/Sprint_16_GRU_Baseline_MLflow.md) | GRU baseline + MLflow adoption |
-| [17](docs/Sprint_17_Regime_Aware_Normalization.md) | Regime-aware normalization (current model) |
+| [15](docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md) | Fair CatBoost vs. LSTM comparison, later reconstructed after a sandbox reset — see that doc's "Corrected note" and "Final result" sections for the full story, the GRU baseline, and the LSTM+GRU ensemble result |
+| 16, 17 *(referenced in early sprint docs, never actually written)* | A GRU baseline and regime-aware normalization were both planned here — regime-aware normalization was built (`src/preprocessing/regime_normalizer.py`) and GRU was eventually added, but as part of the Sprint 15 reconstruction above, not as standalone docs. Nothing to link — noted here so the gap doesn't look accidental |
 | [18](docs/Sprint_18_Bucket_Error_Analysis.md) | Bucket-level error analysis of the canonical model |
 | [19](docs/Sprint_19_Inference_Pipeline.md) | Consolidated inference pipeline (Production Phase 1) |
 | [20](docs/Sprint_20_Training_Pipeline_MLflow_Registry.md) | Training pipeline + MLflow Model Registry |
-| [21](docs/Sprint_21_Pipeline_Folder_MLflow_Native.md) | `pipeline/` folder — MLflow-native predict, train, tune |
+| [21](docs/Sprint_21_Pipeline_Folder_MLflow_Native.md) | `Pipeline/` folder — MLflow-native predict, train, tune |
 | [22](docs/Sprint_22_FastAPI_Service.md) | FastAPI service — separated routes, background training jobs |
+| [Rollback Strategy](docs/Rollback_Strategy.md) | How to roll back a bad model (MLflow alias, no retraining) or a bad code change (git + CI), independently of each other |
 
 For a runnable, narrated tour of the whole project, see
 `notebooks/00_project_walkthrough.ipynb`.
@@ -300,7 +422,10 @@ For a runnable, narrated tour of the whole project, see
 ## Requirements
 
 ```
-pandas, numpy, scikit-learn, xgboost, lightgbm, catboost, optuna, tensorflow-cpu, mlflow, fastapi, uvicorn
+pandas, numpy, scikit-learn, xgboost, lightgbm, catboost, optuna, tensorflow-cpu,
+mlflow, fastapi, uvicorn, streamlit, requests, joblib, matplotlib, shap
 ```
 
-See `requirements.txt` for the full pinned list.
+`pyproject.toml` + `uv.lock` are the source of truth (`uv sync` installs the exact
+pinned versions in the lockfile); `requirements.txt` lists the same packages for a
+plain `pip install -r requirements.txt` workflow, kept in sync by hand.
