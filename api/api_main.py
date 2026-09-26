@@ -17,9 +17,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Predictive Maintenance RUL API",
     description=(
-        "Predicts remaining useful life for turbofan engines using whichever "
-        "model is currently the MLflow registry's 'champion', and exposes "
-        "endpoints to trigger retraining (with or without a fresh "
+        "Predicts remaining useful life for turbofan engines using the "
+        "backend selected by MODEL_BACKEND (default 'ensemble' -- the "
+        "LSTM+GRU average, this project's best offline result; 'catboost' "
+        "serves the MLflow registry's tabular 'champion' instead), and "
+        "exposes endpoints to trigger retraining (with or without a fresh "
         "hyperparameter search)."
     ),
     version="1.0.0",

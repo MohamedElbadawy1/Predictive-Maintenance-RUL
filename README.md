@@ -180,22 +180,33 @@ Then open `http://localhost:5000`.
 
 ## Production Inference
 
-`MLflowInferencePipeline` is the single place raw-sensor-data-to-prediction logic
-lives — every analysis script's ad-hoc version of this chain has been consolidated
-into one class, and it loads the model, scaler, regime normalizer, and feature list
-**entirely from MLflow** — nothing from local files:
+`/predict` is served by one of two independent backends, chosen once at process
+start by the `MODEL_BACKEND` environment variable (default **`ensemble`**):
+
+| `MODEL_BACKEND` | Class | Reads from | Test MAE |
+|---|---|---|---|
+| `ensemble` (default) | `EnsembleInferencePipeline` | local files under `artifacts/models/ensemble/` (written by `Pipeline/train_ensemble.py`) | **16.69** |
+| `catboost` | `MLflowInferencePipeline` | MLflow's `champion`-aliased registry model | 18.72–19.13 |
 
 ```python
-from src.pipelines.inference_pipeline import MLflowInferencePipeline
+from src.pipelines.ensemble_inference_pipeline import EnsembleInferencePipeline
 
-pipeline = MLflowInferencePipeline()  # loads the champion + its artifacts once
-predictions = pipeline.predict(raw_engine_readings)  # one row per engine
+pipeline = EnsembleInferencePipeline()  # loads LSTM + GRU + scaler + regime normalizer once
+predictions = pipeline.predict(raw_engine_readings)  # one row per engine, averaged
 ```
 
-It auto-detects whether the current champion needs regime-aware normalization by
+Both classes take the same input shape (raw per-cycle readings, full history per
+engine — not just the latest row) and return the same output shape (one row per
+engine, `predicted_RUL` + metadata), so `api/dependencies.py`'s `PipelineCache`
+can load either one without the route code caring which. `MLflowInferencePipeline`
+auto-detects whether the current champion needs regime-aware normalization by
 reading the `requires_regime_normalizer` tag `TrainingPipeline` sets on every
-promoted run — callers don't need to track which preprocessing path is currently
-active.
+promoted run; `EnsembleInferencePipeline` reads the same information from its own
+`manifest.json` instead, since Keras models here aren't registered in MLflow's
+Model Registry at all (`train_lstm.py` / `train_gru.py` log them as comparison
+runs only) — see that class's module docstring for why local files are the right
+choice for this specific path, and why its preprocessing deliberately mirrors
+`src/deep_learning/data_prep.py` step for step.
 
 This class is what both `Pipeline/predict.py` (CLI) and the FastAPI service
 (`api/dependencies.py`) call — it used to live inside `Pipeline/predict.py` itself,
@@ -277,6 +288,23 @@ python Pipeline/train_lstm.py                # train + evaluate, resumes automat
 python Pipeline/train_lstm.py --no-resume     # restart training from epoch 0
 python Pipeline/train_gru.py                  # same protocol, GRU instead of LSTM
 ```
+
+A sixth script, `Pipeline/train_ensemble.py`, is what actually promotes an
+LSTM+GRU pair into production: it trains (or reuses, with `--skip-training`) both
+baselines for one seed, confirms their equal-weight average beats each of them
+individually on the test set, and writes everything `EnsembleInferencePipeline`
+needs to serve that average — manifest, feature scaler, regime normalizer — to
+`artifacts/models/ensemble/`:
+
+```bash
+python Pipeline/train_ensemble.py                    # train both from scratch, then build
+python Pipeline/train_ensemble.py --skip-training    # reuse already-trained *_final.keras checkpoints
+python Pipeline/train_ensemble.py --seed 7            # compare a different seed before deploying
+```
+
+Unlike the CatBoost path, nothing here touches MLflow's `champion` alias — the two
+serving backends are fully independent (see
+[Production Inference](#production-inference)).
 
 A sixth script, `Pipeline/ensemble_evaluate.py`, blends CatBoost + LSTM + GRU
 predictions on the same test engines and reports every combination — this is where
@@ -370,6 +398,61 @@ To require an API key, set `API_KEY` before starting (`export API_KEY=...` or a
 champion trained inside the container is visible on the host and survives
 `docker compose down`, and raw CMAPSS data never needs to be copied into the image
 at all.
+
+---
+
+## Deploying to Hugging Face Spaces (free tier)
+
+`deploy/huggingface/` holds a self-contained variant of the setup above for a free
+[HF Space](https://huggingface.co/spaces) (`CPU basic`, Docker SDK): one container
+running both services, since a Space exposes exactly one public port, with the
+LSTM+GRU ensemble baked into the image at build time, since a free Space's storage
+is **ephemeral** — nothing written after the container starts (a training run,
+`docker compose`'s bind-mounted `artifacts/`) survives a restart or rebuild.
+
+**1. Train and commit the artifacts this serves** (once — or again whenever you
+want to redeploy on a fresher model):
+
+```bash
+python Pipeline/train_ensemble.py        # writes artifacts/models/*.keras and
+                                          # artifacts/models/ensemble/
+git add -f artifacts/models/*.keras artifacts/models/ensemble/
+git commit -m "Add trained LSTM+GRU ensemble for deployment"
+```
+
+(`artifacts/` is in `.gitignore` for local dev — `-f` is deliberate here, since
+this is the one case where the trained files *are* the deployment.)
+
+**2. Create the Space**: [huggingface.co/new-space](https://huggingface.co/new-space) →
+pick a name → SDK: **Docker** → create.
+
+**3. Push this repo's code to the Space**, with the Space's own Dockerfile and
+README at its root instead of this repo's (a Space's Docker SDK only looks for
+`Dockerfile` / `README.md` at the repo root, not in a subfolder):
+
+```bash
+git clone https://huggingface.co/spaces/<your-username>/<your-space-name> hf-space
+cd hf-space
+cp -r ../Predictive-Maintenance-RUL/{api,src,frontend} .
+cp ../Predictive-Maintenance-RUL/{pyproject.toml,uv.lock} .
+cp -r ../Predictive-Maintenance-RUL/artifacts .
+cp ../Predictive-Maintenance-RUL/deploy/huggingface/Dockerfile .
+cp ../Predictive-Maintenance-RUL/deploy/huggingface/start.sh .
+cp ../Predictive-Maintenance-RUL/deploy/huggingface/README.md .
+git add -A && git commit -m "Deploy predictive maintenance RUL app" && git push
+```
+
+The Space rebuilds automatically on push — build logs are on the Space's page. Once
+it's live, `MODEL_BACKEND=ensemble` (set in `deploy/huggingface/Dockerfile`) means
+`/predict` is served entirely from the two committed `.keras` files and the
+`artifacts/models/ensemble/` folder — no MLflow, no database, nothing else to
+provision.
+
+**Optional but recommended**: since anyone can open a public Space, set `API_KEY`
+under the Space's **Settings → Repository secrets** — both services already read
+it automatically (same mechanism as the Docker Compose setup above), and it's
+worth doing before sharing the link since `/train/*` can trigger a real (if slow,
+on free CPU hardware) training job.
 
 ---
 

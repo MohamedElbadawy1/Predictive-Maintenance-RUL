@@ -103,6 +103,7 @@ def prepare_lstm_sequences(
     splitter = DataSplitter(test_size=VALIDATION_SIZE, engine_column=ENGINE_COLUMN, random_state=RANDOM_STATE)
     train_split, val_split = splitter.split(train_with_rul)
 
+    normalizer = None
     if regime_aware:
         normalizer = RegimeNormalizer(n_regimes=n_regimes, sensor_columns=SENSOR_COLUMNS, random_state=RANDOM_STATE)
         train_split = normalizer.fit(train_split).transform(train_split)
@@ -134,4 +135,11 @@ def prepare_lstm_sequences(
         "X_test": X_test, "y_test_true": y_test_true,
         "test_engine_ids": test_engine_ids,
         "scaler": scaler,
+        # None when regime_aware=False -- callers that persist serving
+        # artifacts (Pipeline/train_ensemble.py) must handle that case,
+        # since EnsembleInferencePipeline needs to know whether to skip
+        # regime normalization at inference time too.
+        "regime_normalizer": normalizer,
+        "window_size": window_size,
+        "feature_columns": RAW_FEATURE_COLUMNS,
     }

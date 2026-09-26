@@ -26,6 +26,16 @@ MODEL_FILE_PATH = MODELS_DIR / "model.pkl"
 SELECTED_FEATURES_PATH = MODELS_DIR / "selected_features.json"
 BEST_PARAMS_PATH = MODELS_DIR / "best_params.json"
 
+# LSTM+GRU ensemble serving artifacts (Pipeline/train_ensemble.py writes
+# these; src/pipelines/ensemble_inference_pipeline.py reads them). Kept
+# under MODELS_DIR like everything else model-related, in its own
+# sub-folder since it bundles several files (manifest + 2 sklearn
+# objects) rather than the single .pkl the CatBoost path uses.
+ENSEMBLE_DIR = MODELS_DIR / "ensemble"
+ENSEMBLE_MANIFEST_PATH = ENSEMBLE_DIR / "manifest.json"
+ENSEMBLE_SCALER_PATH = ENSEMBLE_DIR / "feature_scaler.pkl"
+ENSEMBLE_REGIME_NORMALIZER_PATH = ENSEMBLE_DIR / "regime_normalizer.pkl"
+
 EXPERIMENTS_DIR = ARTIFACTS_DIR / "experiments"
 PLOTS_DIR = ARTIFACTS_DIR / "plots"
 SEQUENCES_DIR = ARTIFACTS_DIR / "data" / "sequences"
