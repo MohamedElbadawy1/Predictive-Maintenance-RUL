@@ -87,7 +87,7 @@ tests/                         unittest suite — models, preprocessing, deep
 artifacts/                     Generated: models, scalers, processed data, MLflow store
 reports/                       Generated: experiment result CSVs
 Dockerfile, docker-compose.yml  Containerized api + frontend services
-deploy/render/                  Render free-tier deployment (see below)
+deploy/streamlit-cloud/         Streamlit Community Cloud deployment (see below)
 .github/workflows/ci.yml        Runs the test suite, then builds both images
 ```
 
@@ -201,7 +201,8 @@ can load either one without the route code caring which.
 `EnsembleInferencePipeline` runs both models through **ONNX Runtime**, not
 Keras/TensorFlow directly — `Pipeline/train_ensemble.py` exports each trained
 checkpoint to ONNX as its last step, which is what makes the
-[Render deployment](#deploying-to-render-free-tier) below fit a free tier's RAM
+[Streamlit Community Cloud deployment](#deploying-to-streamlit-community-cloud-free-no-card)
+below fit a free tier's RAM
 limit. Its preprocessing deliberately mirrors
 `src/deep_learning/data_prep.py` step for step (regime-normalize → scale → window)
 to avoid the training/serving skew documented on the CatBoost path (see
@@ -394,17 +395,18 @@ at all.
 
 ---
 
-## Deploying to Render (free tier)
+## Deploying to Streamlit Community Cloud (free, no card)
 
-`deploy/render/` holds the setup for a free [Render](https://render.com) Web
-Service (no card required, ~512MB RAM, sleeps after 15min idle) — one container
-running both the API and the Streamlit frontend, since a free Web Service exposes
-exactly one public port. It installs from `requirements-serving.txt` instead of
-the full `pyproject.toml`: no `tensorflow`, `mlflow`, `catboost`, `xgboost`,
-`lightgbm`, or `optuna`, none of which the ensemble path needs at serving time
-(see [Production Inference](#production-inference) above) — measured at ~240MB
-for the API alone, ~300MB with the frontend running alongside it, versus ~700MB
-if `tensorflow` were imported for the same two models.
+`deploy/streamlit-cloud/app.py` is a standalone entry point for a free
+[Streamlit Community Cloud](https://streamlit.io/cloud) deployment — genuinely
+free, no credit card at any point, deployed straight from this public GitHub repo.
+
+It's a separate file from `frontend/app.py`, not a config flag, because Community
+Cloud runs exactly one Python process per app — there's no way to also run a
+separate FastAPI service alongside it. So instead of making HTTP requests to an
+API, this file calls `EnsembleInferencePipeline` directly, in-process. That also
+means no Docker, no second port to coordinate, and no `API_KEY` to configure —
+just a Python file and a `requirements.txt`, both already committed.
 
 **1. Train and export the artifacts this serves** (once — or again whenever you
 want to redeploy on a fresher model):
@@ -412,8 +414,8 @@ want to redeploy on a fresher model):
 ```bash
 python Pipeline/train_ensemble.py
 # writes artifacts/models/ensemble/{manifest.json, feature_scaler.pkl,
-# regime_normalizer.pkl, lstm.onnx, gru.onnx} -- the ONLY files
-# deploy/render/Dockerfile copies into the image.
+# regime_normalizer.pkl, lstm.onnx, gru.onnx} -- the only files this
+# deployment reads.
 
 git add -f artifacts/models/ensemble/
 git commit -m "Add trained LSTM+GRU ensemble (ONNX) for deployment"
@@ -423,29 +425,24 @@ git push
 (`artifacts/` is in `.gitignore` for local dev — `-f` is deliberate here, since
 this is the one case where the trained files *are* the deployment.)
 
-**2. Create the Web Service**:
-[dashboard.render.com/select-repo](https://dashboard.render.com/select-repo) →
-sign in with GitHub → pick this repo → open **Advanced** and set:
+**2. Deploy**: [share.streamlit.io](https://share.streamlit.io) → sign in with
+GitHub → **New app** → pick this repo and branch, and set:
 
 | Setting | Value |
 |---|---|
-| Environment | Docker |
-| Dockerfile Path | `deploy/render/Dockerfile` |
-| Docker Build Context Directory | `.` (repo root) |
-| Instance Type | Free |
+| Main file path | `deploy/streamlit-cloud/app.py` |
 
-Click **Create Web Service**.
+Click **Deploy**. Community Cloud finds `deploy/streamlit-cloud/requirements.txt`
+automatically (it looks next to the main file first) — no other configuration
+needed.
 
-**3. Wait for the build** — Render clones the repo itself, builds the image, and
-shows live logs on the service's page.
+**3. Open it** — the app gets a URL like
+`https://<your-app-name>.streamlit.app`. The build takes a couple of minutes
+(the `requirements.txt` here installs onnxruntime, not `tensorflow`).
 
-**4. Open it** — the service gets a URL like
-`https://predictive-maintenance-rul.onrender.com`. The **first** request after any
-15-minute idle period takes 30-60s while Render spins the container back up
-(free-tier behavior, not a bug).
-
-**Optional but recommended**: since the URL is public, set `API_KEY` under the
-service's **Environment** tab (same mechanism as the Docker Compose setup above).
+Community Cloud requires a **public** repo on the free tier, and apps sleep after
+some inactivity — visiting the URL wakes them back up automatically after a short
+delay, same idea as most free hosting tiers' spin-down behavior.
 
 ---
 
@@ -507,7 +504,7 @@ matplotlib, shap
 pinned versions in the lockfile); `requirements.txt` lists the same packages for a
 plain `pip install -r requirements.txt` workflow, kept in sync by hand.
 
-`requirements-serving.txt` is a separate, much shorter list — only what a
-deployment running `MODEL_BACKEND=ensemble` actually needs at request time (no
-`tensorflow`/`mlflow`/`catboost`/`xgboost`/`lightgbm`/`optuna`) — see
-[Deploying to Render](#deploying-to-render-free-tier).
+`deploy/streamlit-cloud/requirements.txt` is a separate, much shorter list — only
+what that standalone deployment needs (no `tensorflow`/`mlflow`/`catboost`/
+`xgboost`/`lightgbm`/`optuna`/`fastapi`/`uvicorn`) — see
+[Deploying to Streamlit Community Cloud](#deploying-to-streamlit-community-cloud-free-no-card).

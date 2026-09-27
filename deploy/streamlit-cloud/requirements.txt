@@ -1,0 +1,14 @@
+# deploy/streamlit-cloud/requirements.txt — Streamlit Community Cloud
+# looks for a requirements.txt next to the app's main file first, so
+# this one (not the repo root's) is what it installs from when the
+# main file path is set to deploy/streamlit-cloud/app.py.
+#
+# Same idea as requirements-serving.txt, minus fastapi/uvicorn: this
+# deployment has no separate API process at all -- app.py calls
+# EnsembleInferencePipeline directly (see that file's docstring).
+streamlit
+pandas
+numpy
+scikit-learn
+joblib
+onnxruntime
