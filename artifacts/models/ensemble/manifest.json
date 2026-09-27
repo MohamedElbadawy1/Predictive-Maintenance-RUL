@@ -1,0 +1,54 @@
+{
+  "seed": 42,
+  "window_size": 30,
+  "regime_aware": true,
+  "feature_columns": [
+    "sensor_1",
+    "sensor_2",
+    "sensor_3",
+    "sensor_4",
+    "sensor_5",
+    "sensor_6",
+    "sensor_7",
+    "sensor_8",
+    "sensor_9",
+    "sensor_10",
+    "sensor_11",
+    "sensor_12",
+    "sensor_13",
+    "sensor_14",
+    "sensor_15",
+    "sensor_16",
+    "sensor_17",
+    "sensor_18",
+    "sensor_19",
+    "sensor_20",
+    "sensor_21",
+    "operational_setting_1",
+    "operational_setting_2",
+    "operational_setting_3",
+    "time_in_cycles"
+  ],
+  "lstm_onnx": "lstm.onnx",
+  "gru_onnx": "gru.onnx",
+  "test_metrics": {
+    "lstm": {
+      "MAE": 17.21160125732422,
+      "RMSE": 23.9355748450724,
+      "R2": 0.7978686690330505,
+      "MAPE": 23.799280863069995
+    },
+    "gru": {
+      "MAE": 17.858823776245117,
+      "RMSE": 24.608107606253217,
+      "R2": 0.7863502502441406,
+      "MAPE": 24.750712649899185
+    },
+    "ensemble": {
+      "MAE": 16.68648910522461,
+      "RMSE": 23.220909377632452,
+      "R2": 0.8097589015960693,
+      "MAPE": 22.62471551678885
+    }
+  }
+}

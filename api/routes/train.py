@@ -6,9 +6,20 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from api.dependencies import job_store, pipeline_cache
 from api.schemas import FixedParamsTrainingRequest, TrainingJobStatus, TuningTrainingRequest
 from src.exceptions.custom_exception import CustomException
-from src.experiments.mlflow_tracker import MLflowTracker
 from src.logger.logger import logger
-from src.training.pipeline import TrainingPipeline
+
+# MLflowTracker and TrainingPipeline are NOT imported at module level on
+# purpose: importing either one pulls in mlflow, catboost, xgboost,
+# lightgbm and optuna transitively, and api/api_main.py imports this
+# router unconditionally at process startup regardless of
+# MODEL_BACKEND. On a memory-constrained deployment (e.g. a free-tier
+# host with ~512MB RAM) that eager import alone can be the difference
+# between the process starting and getting OOM-killed before it ever
+# serves a request -- for a MODEL_BACKEND=ensemble deployment, none of
+# those five packages are needed unless someone actually calls
+# /train/tuning or /train/best-params. Importing them lazily, inside
+# the two functions below, defers that cost to the (rare, background)
+# training call that actually needs it.
 
 router = APIRouter()
 
@@ -49,6 +60,8 @@ def _result_to_dict(result) -> dict:
 def _run_tuning_job(job_id: str, n_trials: int, models: list, regime_aware: bool) -> None:
 
     try:
+        from src.training.pipeline import TrainingPipeline
+
         pipeline = TrainingPipeline()
         result = pipeline.run(n_trials=n_trials, model_names=models, regime_aware=regime_aware)
 
@@ -65,6 +78,9 @@ def _run_tuning_job(job_id: str, n_trials: int, models: list, regime_aware: bool
 def _run_fixed_params_job(job_id: str, regime_aware: bool) -> None:
 
     try:
+        from src.experiments.mlflow_tracker import MLflowTracker
+        from src.training.pipeline import TrainingPipeline
+
         tracker = MLflowTracker()
         training_pipeline = TrainingPipeline()
 

@@ -11,6 +11,9 @@ lightgbm
 catboost
 optuna
 tensorflow-cpu
+tf2onnx
+onnx
+onnxruntime
 streamlit
 requests
 mlflow

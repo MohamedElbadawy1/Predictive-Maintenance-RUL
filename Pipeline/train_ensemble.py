@@ -1,15 +1,31 @@
 """
 Pipeline/train_ensemble.py — train (or reuse) the LSTM and GRU
 baselines, confirm their equal-weight average beats each of them
-individually on the official test set, and persist everything
-EnsembleInferencePipeline needs to serve that average in production:
+individually on the official test set, export both to ONNX, and
+persist everything EnsembleInferencePipeline needs to serve that
+average in production:
 
     artifacts/models/ensemble/
     ├── manifest.json           window_size, seed, feature columns,
     │                           whether regime normalization was used,
-    │                           and the two checkpoint filenames
+    │                           and the two ONNX filenames
     ├── feature_scaler.pkl      StandardScaler fit on RAW_FEATURE_COLUMNS
-    └── regime_normalizer.pkl   only written when regime_aware=True
+    ├── regime_normalizer.pkl   only written when regime_aware=True
+    ├── lstm.onnx               ONNX export of the trained LSTM
+    └── gru.onnx                ONNX export of the trained GRU
+
+Serving uses ONNX Runtime rather than Keras/TensorFlow directly (see
+EnsembleInferencePipeline's module docstring for why -- short version:
+importing tensorflow costs ~500-600MB of RSS regardless of model size,
+which alone exceeds the memory budget of most free hosting tiers;
+onnxruntime with these two models loaded measured under 65MB). The
+conversion path here (Keras -> tf.saved_model export -> tf2onnx CLI)
+is deliberate, not the more direct `tf2onnx.convert.from_keras(model,
+...)`: as of tf2onnx 1.17 / Keras 3, that direct path raises a
+KeyError from a stale tensor-name lookup against Keras 3's renamed
+internals. Exporting a plain SavedModel first and converting *that*
+sidesteps the incompatibility entirely and is exactly the invocation
+tf2onnx's own docs recommend for SavedModel-based conversion.
 
 This is the ensemble counterpart of Pipeline/train_with_tuning.py /
 train_with_best_params.py for CatBoost: those promote a champion into
@@ -36,7 +52,10 @@ Usage:
 """
 import argparse
 import json
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from tensorflow import keras
@@ -55,6 +74,32 @@ from src.deep_learning.dl_trainer import DLTrainer
 from src.evaluation.evaluator import RegressionEvaluator
 from src.exceptions.custom_exception import CustomException
 from src.logger.logger import logger
+
+
+def _export_to_onnx(model: keras.Model, out_path: Path, opset: int = 13) -> None:
+    """
+    Keras 3 -> ONNX, via a plain tf.saved_model export rather than
+    tf2onnx's `convert.from_keras(model, ...)` -- see this module's
+    docstring for why the direct path fails against Keras 3.
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        saved_model_dir = Path(tmp_dir) / "saved_model"
+        model.export(str(saved_model_dir))
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "tf2onnx.convert",
+                "--saved-model", str(saved_model_dir),
+                "--output", str(out_path),
+                "--opset", str(opset),
+            ],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise CustomException(
+                f"tf2onnx failed converting {saved_model_dir} to {out_path}:\n{result.stderr}", sys,
+            )
+    logger.info(f"Exported ONNX model to {out_path} ({out_path.stat().st_size / 1024:.0f} KB)")
 
 if __name__ == "__main__":
 
@@ -171,13 +216,18 @@ if __name__ == "__main__":
         # longer matches this manifest's regime_aware=False.
         ENSEMBLE_REGIME_NORMALIZER_PATH.unlink()
 
+    lstm_onnx_path = ENSEMBLE_DIR / "lstm.onnx"
+    gru_onnx_path = ENSEMBLE_DIR / "gru.onnx"
+    _export_to_onnx(lstm_trainer.model, lstm_onnx_path)
+    _export_to_onnx(gru_trainer.model, gru_onnx_path)
+
     manifest = {
         "seed": args.seed,
         "window_size": args.window_size,
         "regime_aware": regime_aware,
         "feature_columns": RAW_FEATURE_COLUMNS,
-        "lstm_checkpoint": lstm_final_path.name,
-        "gru_checkpoint": gru_final_path.name,
+        "lstm_onnx": lstm_onnx_path.name,
+        "gru_onnx": gru_onnx_path.name,
         "test_metrics": {"lstm": lstm_metrics, "gru": gru_metrics, "ensemble": ensemble_metrics},
     }
     with open(ENSEMBLE_MANIFEST_PATH, "w") as f:

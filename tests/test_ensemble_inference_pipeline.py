@@ -5,18 +5,24 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import joblib
 import numpy as np
 import pandas as pd
 
 from src.deep_learning.data_prep import RAW_FEATURE_COLUMNS
 from src.deep_learning.lstm_model import build_lstm_baseline
 from src.deep_learning.gru_model import build_gru_baseline
-from src.deep_learning.dl_trainer import DLTrainer
 from src.exceptions.custom_exception import CustomException
 from src.preprocessing.regime_normalizer import RegimeNormalizer
 from src.preprocessing.feature_scaler import FeatureScaler
 from src.utils.constant import SENSOR_COLUMNS
+
+# Reuses Pipeline/train_ensemble.py's own Keras -> ONNX conversion
+# rather than duplicating it, so this test exercises the exact export
+# path production artifacts go through, not a second, independent one
+# that could silently drift out of sync with it.
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from Pipeline.train_ensemble import _export_to_onnx
 
 WINDOW_SIZE = 6
 N_FEATURES = len(RAW_FEATURE_COLUMNS)  # 25
@@ -41,18 +47,17 @@ def _make_synthetic_raw_df(engine_id: int, n_cycles: int, rng: np.random.Generat
 
 class TestEnsembleInferencePipeline(unittest.TestCase):
     """Builds a tiny, fully self-contained ensemble (random-weight LSTM
-    + GRU, a scaler/regime-normalizer fit on synthetic data) under a
-    temp directory and patches the module-level path constants
-    EnsembleInferencePipeline reads from -- no real training, no real
-    CMAPSS data, no artifacts/ dependency."""
+    + GRU exported to ONNX, a scaler/regime-normalizer fit on synthetic
+    data) under a temp directory and patches the module-level path
+    constants EnsembleInferencePipeline reads from -- no real training,
+    no real CMAPSS data, no artifacts/ dependency."""
 
     def setUp(self):
 
         self.tmp_dir = Path(tempfile.mkdtemp())
         self.rng = np.random.default_rng(42)
 
-        self.models_dir = self.tmp_dir / "models"
-        self.ensemble_dir = self.models_dir / "ensemble"
+        self.ensemble_dir = self.tmp_dir / "ensemble"
         self.ensemble_dir.mkdir(parents=True)
 
         # Fit real (tiny) preprocessing artifacts on synthetic training rows
@@ -72,17 +77,17 @@ class TestEnsembleInferencePipeline(unittest.TestCase):
         self.scaler.save(self.scaler_path)
         self.regime_normalizer.save(self.regime_path)
 
-        # Tiny, untrained (random-weight) LSTM/GRU -- correctness of
-        # the *averaging and windowing plumbing* is what's under test
-        # here, not prediction quality (that's the training scripts'
-        # job, verified separately by Pipeline/train_ensemble.py).
+        # Tiny, untrained (random-weight) LSTM/GRU, exported to ONNX the
+        # same way Pipeline/train_ensemble.py exports the real ones --
+        # correctness of the *averaging and windowing plumbing* is what's
+        # under test here, not prediction quality.
         lstm_model = build_lstm_baseline(window_size=WINDOW_SIZE, n_features=N_FEATURES, lstm_units=4)
         gru_model = build_gru_baseline(window_size=WINDOW_SIZE, n_features=N_FEATURES, gru_units=4)
 
-        self.lstm_path = self.models_dir / "lstm_test.keras"
-        self.gru_path = self.models_dir / "gru_test.keras"
-        DLTrainer(lstm_model, checkpoint_path=self.lstm_path, track_mlflow=False).save(self.lstm_path)
-        DLTrainer(gru_model, checkpoint_path=self.gru_path, track_mlflow=False).save(self.gru_path)
+        self.lstm_onnx_path = self.ensemble_dir / "lstm.onnx"
+        self.gru_onnx_path = self.ensemble_dir / "gru.onnx"
+        _export_to_onnx(lstm_model, self.lstm_onnx_path)
+        _export_to_onnx(gru_model, self.gru_onnx_path)
 
         self.manifest_path = self.ensemble_dir / "manifest.json"
         self.manifest = {
@@ -90,8 +95,8 @@ class TestEnsembleInferencePipeline(unittest.TestCase):
             "window_size": WINDOW_SIZE,
             "regime_aware": True,
             "feature_columns": RAW_FEATURE_COLUMNS,
-            "lstm_checkpoint": self.lstm_path.name,
-            "gru_checkpoint": self.gru_path.name,
+            "lstm_onnx": self.lstm_onnx_path.name,
+            "gru_onnx": self.gru_onnx_path.name,
         }
         with open(self.manifest_path, "w") as f:
             json.dump(self.manifest, f)
@@ -100,7 +105,7 @@ class TestEnsembleInferencePipeline(unittest.TestCase):
             patch("src.pipelines.ensemble_inference_pipeline.ENSEMBLE_MANIFEST_PATH", self.manifest_path),
             patch("src.pipelines.ensemble_inference_pipeline.ENSEMBLE_SCALER_PATH", self.scaler_path),
             patch("src.pipelines.ensemble_inference_pipeline.ENSEMBLE_REGIME_NORMALIZER_PATH", self.regime_path),
-            patch("src.pipelines.ensemble_inference_pipeline.MODELS_DIR", self.models_dir),
+            patch("src.pipelines.ensemble_inference_pipeline.ENSEMBLE_DIR", self.ensemble_dir),
         ]
         for p in self._patches:
             p.start()
@@ -147,7 +152,9 @@ class TestEnsembleInferencePipeline(unittest.TestCase):
         scaled = self.scaler.transform(normalized[RAW_FEATURE_COLUMNS])
         X = scaled.to_numpy(dtype=np.float32)[-WINDOW_SIZE:][None, ...]
 
-        expected = (pipeline.lstm.predict(X)[0] + pipeline.gru.predict(X)[0]) / 2
+        lstm_pred = pipeline.lstm_session.run(None, {pipeline.lstm_input_name: X})[0].flatten()[0]
+        gru_pred = pipeline.gru_session.run(None, {pipeline.gru_input_name: X})[0].flatten()[0]
+        expected = (lstm_pred + gru_pred) / 2
 
         self.assertAlmostEqual(float(result.loc[0, "predicted_RUL"]), float(expected), places=4)
 

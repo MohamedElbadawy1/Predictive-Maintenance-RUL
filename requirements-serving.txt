@@ -1,0 +1,31 @@
+# requirements-serving.txt — the dependency list a *deployment*
+# actually needs to run api/ + frontend/ with MODEL_BACKEND=ensemble
+# (the default). Deliberately much smaller than requirements.txt /
+# pyproject.toml, which cover local dev AND training (tensorflow-cpu,
+# mlflow, catboost, xgboost, lightgbm, optuna, tf2onnx, shap,
+# matplotlib) -- none of those are imported by the ensemble serving
+# path (src/pipelines/ensemble_inference_pipeline.py uses onnxruntime,
+# not Keras/TensorFlow) or by api/routes/train.py's endpoints unless
+# someone actually calls /train/tuning or /train/best-params (those
+# five heavy packages are imported lazily, inside the two functions
+# that need them -- see that file).
+#
+# This is what deploy/render/Dockerfile installs from. Using it there
+# instead of requirements.txt is most of the difference between the
+# ~700MB RSS a tensorflow-cpu process needs at idle and the ~240MB
+# this one measured at under the same load -- see
+# EnsembleInferencePipeline's module docstring for the full
+# measurement this is based on.
+#
+# If you switch a deployment to MODEL_BACKEND=catboost instead, add
+# mlflow back to this file (that backend loads its champion from
+# MLflow's registry at request time).
+fastapi
+uvicorn
+streamlit
+requests
+pandas
+numpy
+scikit-learn
+joblib
+onnxruntime

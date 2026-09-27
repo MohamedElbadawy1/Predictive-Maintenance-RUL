@@ -13,30 +13,27 @@ fixed schedule or after something breaks.
 
 Three model families were trained and evaluated on the same official, held-out
 `test_FD004` engines. A simple average of the two sequence models beats every
-single model individually — not by a trivial margin:
+single model individually — not by a trivial margin — and is what `/predict`
+serves by default:
 
 | Model | Test MAE | Test R² |
 |---|---:|---:|
-| CatBoost (MLflow "champion" — the one actually served) | 18.72–19.13 | 0.78 |
+| CatBoost (available via `MODEL_BACKEND=catboost`) | 18.72–19.13 | 0.78 |
 | LSTM (seed=42) | 17.69 | 0.787 |
 | GRU (seed=42) | 16.74 | 0.819 |
-| **LSTM + GRU average (best result, not served)** | **16.39** | **0.822** |
+| **LSTM + GRU average (served by default)** | **16.39** | **0.822** |
 
-The LSTM+GRU average is the strongest result in this project, but it is **not**
-what the API actually serves — CatBoost remains the registered MLflow "champion"
-because promoting a sequence-model average would need its own sequence-aware
-serving path (`MLflowInferencePipeline` currently expects one tabular row per
-engine, not a 30-cycle window), which hasn't been built yet. See
+See [Production Inference](#production-inference) below for how the two backends
+are selected, and
 [`docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md`](docs/Sprint_15_LSTM_Cap150_Test_Evaluation.md)
-for the full comparison, the reconstruction history behind it, and why single-seed
-results here should be read with real caution (documented seed-to-seed variance of
-roughly ±1 MAE point).
+for the full comparison and why single-seed results here should be read with real
+caution (documented seed-to-seed variance of roughly ±1 MAE point).
 
 Full history of how the CatBoost model was arrived at — including the dead ends and
 negative results — is in [`docs/`](#documentation-index) below. Every number in this
 project comes from a real experiment; nothing here is assumed.
 
-**Important**: the served model requires an extra preprocessing step most of the
+**Important**: both backends require an extra preprocessing step most of the
 project's history didn't need — see [Regime-Aware Normalization](#regime-aware-normalization)
 below.
 
@@ -90,6 +87,7 @@ tests/                         unittest suite — models, preprocessing, deep
 artifacts/                     Generated: models, scalers, processed data, MLflow store
 reports/                       Generated: experiment result CSVs
 Dockerfile, docker-compose.yml  Containerized api + frontend services
+deploy/render/                  Render free-tier deployment (see below)
 .github/workflows/ci.yml        Runs the test suite, then builds both images
 ```
 
@@ -185,35 +183,32 @@ start by the `MODEL_BACKEND` environment variable (default **`ensemble`**):
 
 | `MODEL_BACKEND` | Class | Reads from | Test MAE |
 |---|---|---|---|
-| `ensemble` (default) | `EnsembleInferencePipeline` | local files under `artifacts/models/ensemble/` (written by `Pipeline/train_ensemble.py`) | **16.69** |
+| `ensemble` (default) | `EnsembleInferencePipeline` | local files under `artifacts/models/ensemble/` (written by `Pipeline/train_ensemble.py`) | **16.39** |
 | `catboost` | `MLflowInferencePipeline` | MLflow's `champion`-aliased registry model | 18.72–19.13 |
 
 ```python
 from src.pipelines.ensemble_inference_pipeline import EnsembleInferencePipeline
 
-pipeline = EnsembleInferencePipeline()  # loads LSTM + GRU + scaler + regime normalizer once
+pipeline = EnsembleInferencePipeline()  # loads LSTM + GRU (as ONNX) + scaler + regime normalizer once
 predictions = pipeline.predict(raw_engine_readings)  # one row per engine, averaged
 ```
 
 Both classes take the same input shape (raw per-cycle readings, full history per
 engine — not just the latest row) and return the same output shape (one row per
 engine, `predicted_RUL` + metadata), so `api/dependencies.py`'s `PipelineCache`
-can load either one without the route code caring which. `MLflowInferencePipeline`
-auto-detects whether the current champion needs regime-aware normalization by
-reading the `requires_regime_normalizer` tag `TrainingPipeline` sets on every
-promoted run; `EnsembleInferencePipeline` reads the same information from its own
-`manifest.json` instead, since Keras models here aren't registered in MLflow's
-Model Registry at all (`train_lstm.py` / `train_gru.py` log them as comparison
-runs only) — see that class's module docstring for why local files are the right
-choice for this specific path, and why its preprocessing deliberately mirrors
-`src/deep_learning/data_prep.py` step for step.
+can load either one without the route code caring which.
+
+`EnsembleInferencePipeline` runs both models through **ONNX Runtime**, not
+Keras/TensorFlow directly — `Pipeline/train_ensemble.py` exports each trained
+checkpoint to ONNX as its last step, which is what makes the
+[Render deployment](#deploying-to-render-free-tier) below fit a free tier's RAM
+limit. Its preprocessing deliberately mirrors
+`src/deep_learning/data_prep.py` step for step (regime-normalize → scale → window)
+to avoid the training/serving skew documented on the CatBoost path (see
+`Pipeline/ensemble_evaluate.py`'s docstring).
 
 This class is what both `Pipeline/predict.py` (CLI) and the FastAPI service
-(`api/dependencies.py`) call — it used to live inside `Pipeline/predict.py` itself,
-which caused a real bug: importing it cross-folder from `api/` broke depending on
-the checked-out folder's exact case (fine on some machines, silently broken on
-others, and reliably broken inside the Linux-based Docker image). Moving it to
-`src/` fixed that for good — see
+(`api/dependencies.py`) call — see
 [`docs/Sprint_19_Inference_Pipeline.md`](docs/Sprint_19_Inference_Pipeline.md) for
 the original input/output contract.
 
@@ -290,11 +285,10 @@ python Pipeline/train_gru.py                  # same protocol, GRU instead of LS
 ```
 
 A sixth script, `Pipeline/train_ensemble.py`, is what actually promotes an
-LSTM+GRU pair into production: it trains (or reuses, with `--skip-training`) both
-baselines for one seed, confirms their equal-weight average beats each of them
-individually on the test set, and writes everything `EnsembleInferencePipeline`
-needs to serve that average — manifest, feature scaler, regime normalizer — to
-`artifacts/models/ensemble/`:
+LSTM+GRU pair into production: trains (or reuses, with `--skip-training`) both
+baselines for one seed, confirms their average beats each individually on the
+test set, exports both to ONNX, and writes everything `EnsembleInferencePipeline`
+needs into `artifacts/models/ensemble/`:
 
 ```bash
 python Pipeline/train_ensemble.py                    # train both from scratch, then build
@@ -302,11 +296,10 @@ python Pipeline/train_ensemble.py --skip-training    # reuse already-trained *_f
 python Pipeline/train_ensemble.py --seed 7            # compare a different seed before deploying
 ```
 
-Unlike the CatBoost path, nothing here touches MLflow's `champion` alias — the two
-serving backends are fully independent (see
-[Production Inference](#production-inference)).
+Nothing here touches MLflow's `champion` alias — the two serving backends are
+fully independent (see [Production Inference](#production-inference)).
 
-A sixth script, `Pipeline/ensemble_evaluate.py`, blends CatBoost + LSTM + GRU
+A seventh script, `Pipeline/ensemble_evaluate.py`, blends CatBoost + LSTM + GRU
 predictions on the same test engines and reports every combination — this is where
 the LSTM+GRU result in [Current Best Model](#current-best-model) comes from:
 
@@ -401,58 +394,58 @@ at all.
 
 ---
 
-## Deploying to Hugging Face Spaces (free tier)
+## Deploying to Render (free tier)
 
-`deploy/huggingface/` holds a self-contained variant of the setup above for a free
-[HF Space](https://huggingface.co/spaces) (`CPU basic`, Docker SDK): one container
-running both services, since a Space exposes exactly one public port, with the
-LSTM+GRU ensemble baked into the image at build time, since a free Space's storage
-is **ephemeral** — nothing written after the container starts (a training run,
-`docker compose`'s bind-mounted `artifacts/`) survives a restart or rebuild.
+`deploy/render/` holds the setup for a free [Render](https://render.com) Web
+Service (no card required, ~512MB RAM, sleeps after 15min idle) — one container
+running both the API and the Streamlit frontend, since a free Web Service exposes
+exactly one public port. It installs from `requirements-serving.txt` instead of
+the full `pyproject.toml`: no `tensorflow`, `mlflow`, `catboost`, `xgboost`,
+`lightgbm`, or `optuna`, none of which the ensemble path needs at serving time
+(see [Production Inference](#production-inference) above) — measured at ~240MB
+for the API alone, ~300MB with the frontend running alongside it, versus ~700MB
+if `tensorflow` were imported for the same two models.
 
-**1. Train and commit the artifacts this serves** (once — or again whenever you
+**1. Train and export the artifacts this serves** (once — or again whenever you
 want to redeploy on a fresher model):
 
 ```bash
-python Pipeline/train_ensemble.py        # writes artifacts/models/*.keras and
-                                          # artifacts/models/ensemble/
-git add -f artifacts/models/*.keras artifacts/models/ensemble/
-git commit -m "Add trained LSTM+GRU ensemble for deployment"
+python Pipeline/train_ensemble.py
+# writes artifacts/models/ensemble/{manifest.json, feature_scaler.pkl,
+# regime_normalizer.pkl, lstm.onnx, gru.onnx} -- the ONLY files
+# deploy/render/Dockerfile copies into the image.
+
+git add -f artifacts/models/ensemble/
+git commit -m "Add trained LSTM+GRU ensemble (ONNX) for deployment"
+git push
 ```
 
 (`artifacts/` is in `.gitignore` for local dev — `-f` is deliberate here, since
 this is the one case where the trained files *are* the deployment.)
 
-**2. Create the Space**: [huggingface.co/new-space](https://huggingface.co/new-space) →
-pick a name → SDK: **Docker** → create.
+**2. Create the Web Service**:
+[dashboard.render.com/select-repo](https://dashboard.render.com/select-repo) →
+sign in with GitHub → pick this repo → open **Advanced** and set:
 
-**3. Push this repo's code to the Space**, with the Space's own Dockerfile and
-README at its root instead of this repo's (a Space's Docker SDK only looks for
-`Dockerfile` / `README.md` at the repo root, not in a subfolder):
+| Setting | Value |
+|---|---|
+| Environment | Docker |
+| Dockerfile Path | `deploy/render/Dockerfile` |
+| Docker Build Context Directory | `.` (repo root) |
+| Instance Type | Free |
 
-```bash
-git clone https://huggingface.co/spaces/<your-username>/<your-space-name> hf-space
-cd hf-space
-cp -r ../Predictive-Maintenance-RUL/{api,src,frontend} .
-cp ../Predictive-Maintenance-RUL/{pyproject.toml,uv.lock} .
-cp -r ../Predictive-Maintenance-RUL/artifacts .
-cp ../Predictive-Maintenance-RUL/deploy/huggingface/Dockerfile .
-cp ../Predictive-Maintenance-RUL/deploy/huggingface/start.sh .
-cp ../Predictive-Maintenance-RUL/deploy/huggingface/README.md .
-git add -A && git commit -m "Deploy predictive maintenance RUL app" && git push
-```
+Click **Create Web Service**.
 
-The Space rebuilds automatically on push — build logs are on the Space's page. Once
-it's live, `MODEL_BACKEND=ensemble` (set in `deploy/huggingface/Dockerfile`) means
-`/predict` is served entirely from the two committed `.keras` files and the
-`artifacts/models/ensemble/` folder — no MLflow, no database, nothing else to
-provision.
+**3. Wait for the build** — Render clones the repo itself, builds the image, and
+shows live logs on the service's page.
 
-**Optional but recommended**: since anyone can open a public Space, set `API_KEY`
-under the Space's **Settings → Repository secrets** — both services already read
-it automatically (same mechanism as the Docker Compose setup above), and it's
-worth doing before sharing the link since `/train/*` can trigger a real (if slow,
-on free CPU hardware) training job.
+**4. Open it** — the service gets a URL like
+`https://predictive-maintenance-rul.onrender.com`. The **first** request after any
+15-minute idle period takes 30-60s while Render spins the container back up
+(free-tier behavior, not a bug).
+
+**Optional but recommended**: since the URL is public, set `API_KEY` under the
+service's **Environment** tab (same mechanism as the Docker Compose setup above).
 
 ---
 
@@ -506,9 +499,15 @@ For a runnable, narrated tour of the whole project, see
 
 ```
 pandas, numpy, scikit-learn, xgboost, lightgbm, catboost, optuna, tensorflow-cpu,
-mlflow, fastapi, uvicorn, streamlit, requests, joblib, matplotlib, shap
+tf2onnx, onnx, onnxruntime, mlflow, fastapi, uvicorn, streamlit, requests, joblib,
+matplotlib, shap
 ```
 
 `pyproject.toml` + `uv.lock` are the source of truth (`uv sync` installs the exact
 pinned versions in the lockfile); `requirements.txt` lists the same packages for a
 plain `pip install -r requirements.txt` workflow, kept in sync by hand.
+
+`requirements-serving.txt` is a separate, much shorter list — only what a
+deployment running `MODEL_BACKEND=ensemble` actually needs at request time (no
+`tensorflow`/`mlflow`/`catboost`/`xgboost`/`lightgbm`/`optuna`) — see
+[Deploying to Render](#deploying-to-render-free-tier).

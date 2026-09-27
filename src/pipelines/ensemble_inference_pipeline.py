@@ -4,15 +4,31 @@ serves the LSTM+GRU equal-weight average (this project's best result,
 per README's "Current Best Model" -- test MAE 16.39 vs CatBoost's
 18.72-19.13), reading everything it needs from
 artifacts/models/ensemble/ (written by Pipeline/train_ensemble.py):
-manifest.json, feature_scaler.pkl, and (when the manifest says
-regime_aware=True) regime_normalizer.pkl.
+manifest.json, feature_scaler.pkl, regime_normalizer.pkl (when the
+manifest says regime_aware=True), and the two ONNX exports of the
+trained LSTM/GRU checkpoints.
+
+Runs both models through ONNX Runtime, not Keras/TensorFlow, and this
+is the one part of this module worth explaining: importing tensorflow
+adds roughly 500-600MB of RSS by itself (independent of model size --
+even these two ~250KB checkpoints trigger the same jump), which is
+larger than the entire memory budget of most free hosting tiers (e.g.
+Render's free web service: 512MB). onnxruntime with the same two
+models loaded measured under 65MB in the same environment -- see
+Pipeline/train_ensemble.py's docstring for the tf2onnx conversion
+step that produces lstm.onnx / gru.onnx from the Keras checkpoints,
+and requirements-serving.txt for the trimmed dependency list this
+lets a deployment install (no tensorflow, no mlflow/catboost/xgboost/
+lightgbm/optuna either, since none of those are needed to serve this
+backend). Training still happens in Keras/TensorFlow exactly as
+before -- only serving changed.
 
 Deliberately reads local files rather than MLflow, unlike
-MLflowInferencePipeline: Keras models aren't registered in the MLflow
-Model Registry here (train_lstm.py / train_gru.py log them as
-comparison runs only, never as a "champion"), so there is no registry
-alias to load them from. artifacts/ is already the shared, volume-
-mounted location both serving paths use (see docker-compose.yml).
+MLflowInferencePipeline: these models aren't registered in the MLflow
+Model Registry (train_lstm.py / train_gru.py log them as comparison
+runs only, never as a "champion"), so there is no registry alias to
+load them from. artifacts/ is already the shared, volume-mounted
+location both serving paths use (see docker-compose.yml).
 
 Preprocessing here intentionally mirrors
 src/deep_learning/data_prep.py's prepare_lstm_sequences() step for
@@ -32,15 +48,15 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+import onnxruntime as ort
 import pandas as pd
 
 from src.config.config import (
     ENSEMBLE_MANIFEST_PATH, ENSEMBLE_SCALER_PATH, ENSEMBLE_REGIME_NORMALIZER_PATH,
-    MODELS_DIR, ENGINE_COLUMN,
+    ENSEMBLE_DIR, ENGINE_COLUMN,
 )
 from src.utils.constant import SENSOR_COLUMNS
 from src.exceptions.custom_exception import CustomException
-from src.deep_learning.dl_trainer import DLTrainer
 from src.logger.logger import logger
 
 TIME_COLUMN = "time_in_cycles"
@@ -66,7 +82,7 @@ class EnsembleInferencePipeline:
             raise CustomException(
                 f"No ensemble manifest found at {ENSEMBLE_MANIFEST_PATH}. "
                 "Run Pipeline/train_ensemble.py first to train the LSTM+GRU "
-                "pair and write serving artifacts.", sys,
+                "pair and export serving artifacts.", sys,
             )
 
         with open(ENSEMBLE_MANIFEST_PATH) as f:
@@ -90,17 +106,28 @@ class EnsembleInferencePipeline:
                 )
             self.regime_normalizer = joblib.load(ENSEMBLE_REGIME_NORMALIZER_PATH)
 
-        lstm_path = MODELS_DIR / self.manifest["lstm_checkpoint"]
-        gru_path = MODELS_DIR / self.manifest["gru_checkpoint"]
+        lstm_path = ENSEMBLE_DIR / self.manifest["lstm_onnx"]
+        gru_path = ENSEMBLE_DIR / self.manifest["gru_onnx"]
         for path, name in [(lstm_path, "LSTM"), (gru_path, "GRU")]:
             if not path.exists():
-                raise CustomException(f"{name} checkpoint not found at {path}.", sys)
+                raise CustomException(
+                    f"{name} ONNX export not found at {path}. Run "
+                    "Pipeline/train_ensemble.py to (re)generate it.", sys,
+                )
 
-        self.lstm = DLTrainer.load(lstm_path)
-        self.gru = DLTrainer.load(gru_path)
+        # CPUExecutionProvider explicitly: this is the one provider that
+        # ships with the plain `onnxruntime` package (no GPU driver /
+        # CUDA runtime expected on a free-tier host), and being explicit
+        # here means a missing GPU provider fails loudly at model load
+        # instead of only degrading performance if the default provider
+        # list is ever assumed to include one.
+        self.lstm_session = ort.InferenceSession(str(lstm_path), providers=["CPUExecutionProvider"])
+        self.gru_session = ort.InferenceSession(str(gru_path), providers=["CPUExecutionProvider"])
+        self.lstm_input_name = self.lstm_session.get_inputs()[0].name
+        self.gru_input_name = self.gru_session.get_inputs()[0].name
 
         logger.info(
-            f"Loaded ensemble: seed={self.manifest['seed']}, "
+            f"Loaded ensemble (ONNX Runtime): seed={self.manifest['seed']}, "
             f"window_size={self.window_size}, regime_aware={self.regime_aware}."
         )
 
@@ -148,8 +175,8 @@ class EnsembleInferencePipeline:
 
         X = np.asarray(last_windows, dtype=np.float32)
 
-        lstm_preds = self.lstm.predict(X)
-        gru_preds = self.gru.predict(X)
+        lstm_preds = self.lstm_session.run(None, {self.lstm_input_name: X})[0].flatten()
+        gru_preds = self.gru_session.run(None, {self.gru_input_name: X})[0].flatten()
         predictions = (lstm_preds + gru_preds) / 2
 
         result = pd.DataFrame({
