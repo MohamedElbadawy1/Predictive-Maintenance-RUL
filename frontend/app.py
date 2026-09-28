@@ -69,7 +69,7 @@ if uploaded_file is not None:
 
     n_engines = readings_df["unit_number"].nunique() if "unit_number" in readings_df.columns else 0
     st.write(f"Loaded **{len(readings_df)}** rows across **{n_engines}** engine(s).")
-    st.dataframe(readings_df.head(10), use_container_width=True)
+    st.dataframe(readings_df.head(10), width="stretch")
 
     if st.button("Predict RUL", type="primary"):
 
@@ -91,7 +91,7 @@ if uploaded_file is not None:
                 "their prediction may be less reliable."
             )
 
-        st.dataframe(preds_df, use_container_width=True)
+        st.dataframe(preds_df, width="stretch")
         st.bar_chart(preds_df.set_index("unit_number")["predicted_RUL"])
 
 else:

@@ -7,6 +7,14 @@ subsets (6 operating conditions, 2 fault modes simultaneously).
 The goal: enable maintenance to happen right before it's needed, instead of on a
 fixed schedule or after something breaks.
 
+## Live Demo
+
+**https://predictive-maintenance-rul-1.streamlit.app/**
+
+No setup needed — click **Use sample data** to run the LSTM+GRU ensemble on 3 real
+NASA test engines, or upload your own CSV. Details in
+[Trying the App](#trying-the-app) below.
+
 ---
 
 ## Current Best Model
@@ -443,6 +451,33 @@ needed.
 Community Cloud requires a **public** repo on the free tier, and apps sleep after
 some inactivity — visiting the URL wakes them back up automatically after a short
 delay, same idea as most free hosting tiers' spin-down behavior.
+
+---
+
+## Trying the App
+
+Whether you use the [live demo](#live-demo) or run it locally
+(`streamlit run deploy/streamlit-cloud/app.py`), there are two ways to feed it data:
+
+**1. One click, no file needed** — press **Use sample data**. This loads
+`deploy/streamlit-cloud/sample_data.csv`: 551 real rows from three engines in NASA's
+held-out `test_FD004` set (units 1, 5, and 12, with 230, 51, and 270 cycles of
+history), then **Predict RUL** returns one prediction per engine.
+
+**2. Your own CSV** — one row per (engine, cycle), with these 26 columns:
+
+```
+unit_number, time_in_cycles, operational_setting_1, operational_setting_2,
+operational_setting_3, sensor_1, sensor_2, ..., sensor_21
+```
+
+Send the engine's **full history so far**, not just its latest cycle, and each
+engine needs at least 30 rows — the model reads a 30-cycle window. Engines with
+fewer are returned with `short_history_warning: true` and no prediction, rather
+than a guess. `sample_data.csv` doubles as a template for the exact format.
+
+The same data works against the API directly (`POST /predict/` with the rows as
+JSON — see [FastAPI Service](#fastapi-service-api)).
 
 ---
 
