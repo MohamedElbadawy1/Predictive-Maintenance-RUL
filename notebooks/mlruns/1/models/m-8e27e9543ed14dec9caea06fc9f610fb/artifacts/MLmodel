@@ -1,0 +1,22 @@
+artifact_path: file:a:/AI_Engineer/ML Projects/Predictive-Maintenance-RUL/notebooks/mlruns/1/models/m-8e27e9543ed14dec9caea06fc9f610fb/artifacts
+flavors:
+  python_function:
+    data: model.ubj
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.12.12
+  xgboost:
+    code: null
+    data: model.ubj
+    model_class: xgboost.sklearn.XGBRegressor
+    model_format: ubj
+    xgb_version: 3.4.0
+mlflow_version: 3.15.2
+model_id: m-8e27e9543ed14dec9caea06fc9f610fb
+model_size_bytes: 11127826
+model_uuid: m-8e27e9543ed14dec9caea06fc9f610fb
+prompts: null
+run_id: 4bea50c824c1481e84a12a222f95aa9b
+utc_time_created: '2026-09-03 13:16:59.486727'

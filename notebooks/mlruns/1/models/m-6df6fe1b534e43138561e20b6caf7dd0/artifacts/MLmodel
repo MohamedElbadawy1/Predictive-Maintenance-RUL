@@ -1,0 +1,27 @@
+artifact_path: file:a:/AI_Engineer/ML Projects/Predictive-Maintenance-RUL/notebooks/mlruns/1/models/m-6df6fe1b534e43138561e20b6caf7dd0/artifacts
+flavors:
+  lightgbm:
+    code: null
+    data: model.skops
+    lgb_version: 4.7.0
+    model_class: lightgbm.sklearn.LGBMRegressor
+    serialization_format: skops
+    skops_trusted_types:
+    - lightgbm.sklearn.LGBMRegressor
+    - lightgbm.sklearn.LGBMClassifier
+    - collections.OrderedDict
+    - lightgbm.basic.Booster
+  python_function:
+    data: model.skops
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.lightgbm
+    python_version: 3.12.12
+mlflow_version: 3.15.2
+model_id: m-6df6fe1b534e43138561e20b6caf7dd0
+model_size_bytes: 12035326
+model_uuid: m-6df6fe1b534e43138561e20b6caf7dd0
+prompts: null
+run_id: 2ab4b7c12e4144e9b8f37d05aedee9ac
+utc_time_created: '2026-09-03 13:22:19.839243'

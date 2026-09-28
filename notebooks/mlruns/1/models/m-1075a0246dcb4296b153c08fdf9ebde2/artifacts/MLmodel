@@ -1,0 +1,22 @@
+artifact_path: file:a:/AI_Engineer/ML Projects/Predictive-Maintenance-RUL/notebooks/mlruns/1/models/m-1075a0246dcb4296b153c08fdf9ebde2/artifacts
+flavors:
+  catboost:
+    catboost_version: 1.2.10
+    code: null
+    data: model.cb
+    model_type: CatBoostRegressor
+    save_format: cbm
+  python_function:
+    data: model.cb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.catboost
+    python_version: 3.12.12
+mlflow_version: 3.15.2
+model_id: m-1075a0246dcb4296b153c08fdf9ebde2
+model_size_bytes: 20793408
+model_uuid: m-1075a0246dcb4296b153c08fdf9ebde2
+prompts: null
+run_id: da27e46745d542f6b399055d3d841785
+utc_time_created: '2026-09-15 07:02:51.557822'

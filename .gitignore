@@ -1,9 +1,24 @@
-artifacts/
-logs/
-__pycache__/
+# Environments
 .venv/
 .env
-*.pkl
 
-logs
+# Python
+__pycache__/
+*.pyc
+
+# Logs and tool output
+logs/
 catboost_info/
+
+# Generated artifacts: ignore everything except the exported ensemble the
+# hosted app loads (artifacts/models/ensemble/). Parent folders are ignored
+# with `dir/*` (not `dir/`) because git can't re-include a file whose parent
+# folder is excluded outright.
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/ensemble/
+
+# Pickles are ignored everywhere except the ensemble's preprocessing files
+*.pkl
+!artifacts/models/ensemble/*.pkl

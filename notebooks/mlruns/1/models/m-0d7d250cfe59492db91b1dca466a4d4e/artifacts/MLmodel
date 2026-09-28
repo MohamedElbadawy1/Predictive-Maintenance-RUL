@@ -1,0 +1,20 @@
+artifact_path: file:a:/AI_Engineer/ML Projects/Predictive-Maintenance-RUL/notebooks/mlruns/1/models/m-0d7d250cfe59492db91b1dca466a4d4e/artifacts
+flavors:
+  keras:
+    data: data
+    keras_backend: tensorflow
+    keras_version: 3.15.1
+    save_exported_model: false
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.keras
+    python_version: 3.12.12
+mlflow_version: 3.15.2
+model_id: m-0d7d250cfe59492db91b1dca466a4d4e
+model_size_bytes: 303733
+model_uuid: m-0d7d250cfe59492db91b1dca466a4d4e
+prompts: null
+run_id: cb93e00c3af64e7aba51c2aa5d416952
+utc_time_created: '2026-09-13 21:08:59.479374'
