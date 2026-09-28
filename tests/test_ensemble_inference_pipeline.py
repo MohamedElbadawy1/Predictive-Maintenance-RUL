@@ -11,18 +11,11 @@ import pandas as pd
 from src.deep_learning.data_prep import RAW_FEATURE_COLUMNS
 from src.deep_learning.lstm_model import build_lstm_baseline
 from src.deep_learning.gru_model import build_gru_baseline
+from src.deep_learning.onnx_export import export_to_onnx
 from src.exceptions.custom_exception import CustomException
 from src.preprocessing.regime_normalizer import RegimeNormalizer
 from src.preprocessing.feature_scaler import FeatureScaler
 from src.utils.constant import SENSOR_COLUMNS
-
-# Reuses Pipeline/train_ensemble.py's own Keras -> ONNX conversion
-# rather than duplicating it, so this test exercises the exact export
-# path production artifacts go through, not a second, independent one
-# that could silently drift out of sync with it.
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from Pipeline.train_ensemble import _export_to_onnx
 
 WINDOW_SIZE = 6
 N_FEATURES = len(RAW_FEATURE_COLUMNS)  # 25
@@ -86,8 +79,8 @@ class TestEnsembleInferencePipeline(unittest.TestCase):
 
         self.lstm_onnx_path = self.ensemble_dir / "lstm.onnx"
         self.gru_onnx_path = self.ensemble_dir / "gru.onnx"
-        _export_to_onnx(lstm_model, self.lstm_onnx_path)
-        _export_to_onnx(gru_model, self.gru_onnx_path)
+        export_to_onnx(lstm_model, self.lstm_onnx_path)
+        export_to_onnx(gru_model, self.gru_onnx_path)
 
         self.manifest_path = self.ensemble_dir / "manifest.json"
         self.manifest = {
